@@ -179,3 +179,27 @@ it('previews different Graphic View images when the BOOL selector changes', () =
   expect(image()).toBe(idle)
   expect(doc().screens[0].elements[0].graphic?.variants).toHaveLength(2)
 })
+
+it('renders an embedded screen background below primitives and edits its scaling without a PLC connection', () => {
+  const s = newScreen('screen', 'Main')
+  s.backgroundGraphic = {
+    data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGP4z8DwHwgZAA/5Av4tR4H0AAAAAElFTkSuQmCC',
+    fit: 'cover',
+  }
+  s.elements = [newElement('button', 'b')]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [s], startScreen: s.id }} />)
+  const canvas = screen.getByLabelText('Visualization canvas')
+  const background = screen.getByTestId('screen-background-image')
+  expect(background.getAttribute('pointer-events')).toBe('none')
+  expect(background.getAttribute('preserveAspectRatio')).toBe('xMidYMid slice')
+  const imageOrder = Array.from(canvas.querySelectorAll('image, g[data-testid^="element-"]'))
+  expect(imageOrder[0]).toBe(background)
+  expect(imageOrder[1].getAttribute('data-testid')).toBe('element-b')
+  fireEvent.change(screen.getByLabelText('Background image fit'), { target: { value: 'stretch' } })
+  expect(doc().screens[0].backgroundGraphic?.fit).toBe('stretch')
+  expect(screen.getByTestId('screen-background-image').getAttribute('preserveAspectRatio')).toBe('none')
+  fireEvent.click(screen.getByLabelText('Remove screen background image'))
+  expect(doc().screens[0].backgroundGraphic).toBeUndefined()
+  expect(screen.queryByTestId('screen-background-image')).toBeNull()
+  expect(doc().screens[0].background).toBe('#f3f5f7')
+})
