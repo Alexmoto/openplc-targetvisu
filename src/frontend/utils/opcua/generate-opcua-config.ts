@@ -1,0 +1,645 @@
+import type {
+  OpcUaNodeConfig,
+  OpcUaPermissions,
+  OpcUaSecurityProfile,
+  OpcUaServerConfig,
+  OpcUaTrustedCertificate,
+  OpcUaUser,
+  PLCServer,
+} from '@root/middleware/shared/ports/open-plc-types'
+
+import { buildLeafInfoMap, type DebugLeafInfo, parseDebugMap as parseDebugMapJson } from '../debug-parser'
+import { getErrorMessage } from '../get-error-message'
+import {
+  OpcUaConfigError,
+  resolveArrayAddress,
+  resolveArrayElementFields,
+  resolveStructureAddresses,
+  resolveVariableAddress,
+} from './resolve-indices'
+import type { PLCInstanceInfo, ResolvedField } from './types'
+
+/**
+ * opcua.json contract version. Bump when the per-variable schema changes
+ * in a way the runtime must detect. v2 introduced compiler-canonical
+ * `datatype` + `size` per leaf (sourced from debug-map.json) so the
+ * runtime never re-derives byte widths from a drift-prone project-model
+ * datatype. A runtime that requires >= 2 gracefully refuses an older
+ * (unversioned) config instead of writing the wrong number of bytes.
+ */
+export const OPCUA_CONFIG_FORMAT_VERSION = 2
+
+/**
+ * Runtime configuration interfaces
+ * These define the JSON structure expected by the OpenPLC Runtime OPC-UA plugin.
+ * The runtime uses snake_case naming convention.
+ */
+
+interface RuntimeSecurityProfile {
+  name: string
+  enabled: boolean
+  security_policy: string
+  security_mode: string
+  auth_methods: string[]
+  /** Role granted to Anonymous sessions on this profile (viewer/operator/
+   *  engineer). The runtime enforces the per-variable matrix against it.
+   *  Absent -> 'viewer' (least privilege). */
+  anonymous_role: string
+}
+
+interface RuntimeServerConfig {
+  name: string
+  application_uri: string
+  product_uri: string
+  endpoint_url: string
+  security_profiles: RuntimeSecurityProfile[]
+}
+
+interface RuntimeTrustedCertificate {
+  id: string
+  pem: string
+}
+
+interface RuntimeSecurityConfig {
+  server_certificate_strategy: string
+  server_certificate_custom: string | null
+  server_private_key_custom: string | null
+  trusted_client_certificates: RuntimeTrustedCertificate[]
+}
+
+interface RuntimeUser {
+  type: string
+  username: string | null
+  password_hash: string | null
+  certificate_id: string | null
+  role: string
+}
+
+interface RuntimeVariablePermissions {
+  viewer: string
+  operator: string
+  engineer: string
+}
+
+interface RuntimeVariable {
+  node_id: string
+  browse_name: string
+  display_name: string
+  datatype: string
+  /** Canonical byte width from the compiler's debug map. */
+  size: number
+  description: string
+  arr: number
+  elem: number
+  permissions: RuntimeVariablePermissions
+}
+
+interface RuntimeStructureField {
+  name: string
+  datatype: string
+  // Canonical byte width from the compiler; null for complex parents
+  // (containers with nested fields) which have no leaf of their own.
+  size: number | null
+  // null for complex types that have nested fields
+  arr: number | null
+  elem: number | null
+  permissions: RuntimeVariablePermissions
+  fields?: RuntimeStructureField[]
+}
+
+interface RuntimeStructure {
+  node_id: string
+  browse_name: string
+  display_name: string
+  description: string
+  fields: RuntimeStructureField[]
+}
+
+interface RuntimeArray {
+  node_id: string
+  browse_name: string
+  display_name: string
+  datatype: string
+  /** Canonical byte width of one element from the compiler's debug map. */
+  size: number
+  length: number
+  arr: number
+  elem: number
+  permissions: RuntimeVariablePermissions
+}
+
+interface RuntimeAddressSpace {
+  namespace_uri: string
+  variables: RuntimeVariable[]
+  structures: RuntimeStructure[]
+  arrays: RuntimeArray[]
+}
+
+interface RuntimePluginConfig {
+  /** opcua.json contract version — see OPCUA_CONFIG_FORMAT_VERSION. */
+  format_version: number
+  server: RuntimeServerConfig
+  security: RuntimeSecurityConfig
+  users: RuntimeUser[]
+  cycle_time_ms: number
+  address_space: RuntimeAddressSpace
+}
+
+/**
+ * What `buildOpcUaRuntimeConfig` hands back: the resolved v4 runtime config plus
+ * the project-model server settings.
+ *
+ * Runtime v4 wants only `runtime`, serialised. The baremetal `opcua_config.h`
+ * generator wants the resolved address space from `runtime` and the port / bind
+ * address / endpoint path from `server`, which `buildServerConfig` folds into a
+ * single `endpoint_url`.
+ */
+export interface ResolvedOpcUaConfig {
+  /** The Runtime v4 plugin config. `config.address_space` is the valuable
+   *  part: every configured variable path already resolved to an
+   *  `(arr, elem)` pair against strucpp's `debug-map.json`. */
+  runtime: RuntimeConfig
+  /** Project-model server settings, unresolved because they need no
+   *  resolution. */
+  server: OpcUaServerConfig['server']
+}
+
+interface RuntimeConfig {
+  name: string
+  protocol: 'OPC-UA'
+  config: RuntimePluginConfig
+}
+
+/**
+ * Build the runtime server configuration from editor config
+ */
+const buildServerConfig = (config: OpcUaServerConfig): RuntimeServerConfig => {
+  const { server, securityProfiles } = config
+
+  // Build endpoint URL from components
+  const endpointUrl = `opc.tcp://${server.bindAddress}:${server.port}${server.endpointPath}`
+
+  return {
+    name: server.name,
+    application_uri: server.applicationUri,
+    product_uri: server.productUri,
+    endpoint_url: endpointUrl,
+    security_profiles: securityProfiles
+      .filter((sp: OpcUaSecurityProfile) => sp.enabled)
+      .map((sp: OpcUaSecurityProfile) => ({
+        name: sp.name,
+        enabled: sp.enabled,
+        security_policy: sp.securityPolicy,
+        security_mode: sp.securityMode,
+        auth_methods: sp.authMethods,
+        // Anonymous sessions map to this role; absent means least-privilege.
+        anonymous_role: sp.anonymousRole ?? 'viewer',
+      })),
+  }
+}
+
+/**
+ * Build the runtime security configuration from editor config
+ */
+const buildSecurityConfig = (config: OpcUaServerConfig): RuntimeSecurityConfig => {
+  const { security } = config
+
+  return {
+    server_certificate_strategy: security.serverCertificateStrategy,
+    server_certificate_custom: security.serverCertificateCustom,
+    server_private_key_custom: security.serverPrivateKeyCustom,
+    trusted_client_certificates: security.trustedClientCertificates.map((cert: OpcUaTrustedCertificate) => ({
+      id: cert.id,
+      pem: cert.pem,
+    })),
+  }
+}
+
+/**
+ * Build the runtime users configuration from editor config
+ */
+const buildUsersConfig = (config: OpcUaServerConfig): RuntimeUser[] => {
+  return config.users.map((user: OpcUaUser) => ({
+    type: user.type,
+    username: user.username,
+    password_hash: user.passwordHash,
+    certificate_id: user.certificateId,
+    role: user.role,
+  }))
+}
+
+/**
+ * Convert editor permissions to runtime format
+ */
+const convertPermissions = (permissions: OpcUaPermissions): RuntimeVariablePermissions => ({
+  viewer: permissions.viewer,
+  operator: permissions.operator,
+  engineer: permissions.engineer,
+})
+
+/**
+ * Resolve a simple variable and build runtime format
+ */
+const resolveVariable = (
+  node: OpcUaNodeConfig,
+  pathToAddr: Map<string, DebugLeafInfo>,
+  instances: PLCInstanceInfo[],
+  fallbackWarnings: string[],
+): RuntimeVariable => {
+  const addr = resolveVariableAddress(node, pathToAddr, instances, fallbackWarnings)
+
+  return {
+    node_id: node.nodeId,
+    browse_name: node.browseName,
+    display_name: node.displayName,
+    // datatype/size from the compiler's debug map, NOT node.variableType
+    // (the stored project-model type can drift from the compiled layout).
+    datatype: addr.type,
+    size: addr.size,
+    description: node.description,
+    arr: addr.arr,
+    elem: addr.elem,
+    permissions: convertPermissions(node.permissions),
+  }
+}
+
+/**
+ * Convert a resolved field (with possible nested fields) to runtime format recursively.
+ */
+const convertResolvedFieldToRuntime = (field: {
+  name: string
+  datatype: string
+  size: number | null
+  arr: number | null
+  elem: number | null
+  permissions: { viewer: 'r' | 'w' | 'rw'; operator: 'r' | 'w' | 'rw'; engineer: 'r' | 'w' | 'rw' }
+  fields?: (typeof field)[]
+}): RuntimeStructureField => {
+  const runtimeField: RuntimeStructureField = {
+    name: field.name,
+    datatype: field.datatype,
+    size: field.size,
+    arr: field.arr,
+    elem: field.elem,
+    permissions: convertPermissions(field.permissions),
+  }
+
+  // Add nested fields if present (for complex types like FB instances)
+  if (field.fields && field.fields.length > 0) {
+    runtimeField.fields = field.fields.map(convertResolvedFieldToRuntime)
+  }
+
+  return runtimeField
+}
+
+/**
+ * Resolve a structure and build runtime format with field addresses.
+ * Supports nested fields for complex types (FBs within FBs, structs within structs).
+ */
+const resolveStructure = (
+  node: OpcUaNodeConfig,
+  pathToAddr: Map<string, DebugLeafInfo>,
+  instances: PLCInstanceInfo[],
+  droppedPaths: string[],
+  fallbackWarnings: string[],
+): RuntimeStructure | null => {
+  const resolvedFields = resolveStructureAddresses(node, pathToAddr, instances, droppedPaths, fallbackWarnings)
+  if (resolvedFields.length === 0) {
+    return null
+  }
+  return toRuntimeStructure(node, resolvedFields)
+}
+
+/**
+ * Wrap resolved fields in the runtime's structure shape.
+ */
+const toRuntimeStructure = (node: OpcUaNodeConfig, fields: ResolvedField[]): RuntimeStructure => ({
+  node_id: node.nodeId,
+  browse_name: node.browseName,
+  display_name: node.displayName,
+  description: node.description,
+  fields: fields.map(convertResolvedFieldToRuntime),
+})
+
+/**
+ * Resolve an array and build runtime format
+ */
+const resolveArray = (
+  node: OpcUaNodeConfig,
+  pathToAddr: Map<string, DebugLeafInfo>,
+  instances: PLCInstanceInfo[],
+): RuntimeArray => {
+  const addr = resolveArrayAddress(node, pathToAddr, instances)
+
+  // Element datatype/size from the compiler's debug map (the resolved
+  // leaf is the array's first element — all elements share the type),
+  // NOT the stored element type which can drift from the compiled layout.
+  return {
+    node_id: node.nodeId,
+    browse_name: node.browseName,
+    display_name: node.displayName,
+    datatype: addr.type,
+    size: addr.size,
+    length: node.arrayLength || 1,
+    arr: addr.arr,
+    elem: addr.elem,
+    permissions: convertPermissions(node.permissions),
+  }
+}
+
+/** A configured node left out of the build because its variable no longer resolves. */
+interface DroppedNode {
+  node: OpcUaNodeConfig
+  reason: string
+}
+
+/**
+ * Build the complete address space configuration.
+ *
+ * A node whose variable does not resolve (deleted or renamed, or its
+ * program no longer instantiated) is left out and recorded in
+ * `droppedNodes` instead of failing the build.
+ */
+const buildAddressSpace = (
+  config: OpcUaServerConfig,
+  pathToAddr: Map<string, DebugLeafInfo>,
+  instances: PLCInstanceInfo[],
+  droppedPaths: string[],
+  fallbackWarnings: string[],
+  droppedNodes: DroppedNode[],
+): RuntimeAddressSpace => {
+  const variables: RuntimeVariable[] = []
+  const structures: RuntimeStructure[] = []
+  const arrays: RuntimeArray[] = []
+
+  for (const node of config.addressSpace.nodes) {
+    try {
+      switch (node.nodeType) {
+        case 'variable':
+          variables.push(resolveVariable(node, pathToAddr, instances, fallbackWarnings))
+          break
+        case 'structure': {
+          // Structures and FBs are handled the same way - resolve all leaf fields
+          const struct = resolveStructure(node, pathToAddr, instances, droppedPaths, fallbackWarnings)
+          if (struct) structures.push(struct)
+          break
+        }
+        case 'array': {
+          // Arrays with fields (complex element types) are treated like structures
+          // because each leaf variable needs individual address resolution
+          if (node.fields && node.fields.length > 0) {
+            const struct = resolveStructure(node, pathToAddr, instances, droppedPaths, fallbackWarnings)
+            if (struct) structures.push(struct)
+            break
+          }
+          // An array of a UDT / FB has no leaf of its own — only
+          // `ARR[i].FIELD`. The picker only pre-expands small 1-D ones
+          // into `fields`, so rebuild the elements from the debug map
+          // instead of failing the build on a bare `array` node.
+          const elementFields = resolveArrayElementFields(node, pathToAddr, instances)
+          if (elementFields.length > 0) {
+            structures.push(toRuntimeStructure(node, elementFields))
+            break
+          }
+          // Simple arrays of base types
+          arrays.push(resolveArray(node, pathToAddr, instances))
+          break
+        }
+      }
+    } catch (error) {
+      if (error instanceof OpcUaConfigError) {
+        droppedNodes.push({ node, reason: error.message })
+      } else {
+        throw error
+      }
+    }
+  }
+
+  return {
+    namespace_uri: config.addressSpace.namespaceUri,
+    variables,
+    structures,
+    arrays,
+  }
+}
+
+/**
+ * Parse debug-map.json content into the uppercase-path → packed-addr
+ * Map the resolver consumes. The same path→address lookup table the
+ * debugger derives its index map from — single source of truth.
+ *
+ * Returns an empty Map on malformed/missing input; caller checks
+ * `addressSpace.nodes.length > 0 && map.size === 0` to distinguish
+ * "no program loaded yet" from "config has no nodes".
+ */
+const parseDebugMapToInfoMap = (content: string): Map<string, DebugLeafInfo> => {
+  const map = parseDebugMapJson(content)
+  if (!map) return new Map()
+  return buildLeafInfoMap(map)
+}
+
+/**
+ * Generates the OPC-UA configuration JSON for the runtime plugin.
+ * Converts camelCase properties to snake_case expected by the plugin.
+ * Resolves variable addresses from STruC++'s debug-map.json.
+ *
+ * Nodes and field paths that don't resolve (a deleted or renamed
+ * variable, a program no longer instantiated, stale library-FB
+ * internals) are dropped and reported via `onWarn` rather than
+ * aborting the build. Only an empty debug map still throws.
+ *
+ * @param servers - Array of configured PLC servers
+ * @param debugMapContent - Content of the generated debug-map.json file
+ * @param instances - Array of PLC instances from Resources configuration
+ * @param onWarn - Optional sink for "dropped X" warnings
+ * @returns JSON string for opcua.json or null if no enabled OPC-UA server
+ */
+export const buildOpcUaRuntimeConfig = (
+  servers: PLCServer[] | undefined,
+  debugMapContent: string,
+  instances: PLCInstanceInfo[],
+  onWarn?: (message: string) => void,
+): ResolvedOpcUaConfig | null => {
+  // 1. Find OPC-UA server configuration
+  if (!servers || servers.length === 0) {
+    return null
+  }
+
+  const opcuaServer = servers.find((s) => s.protocol === 'opcua' && s.opcuaServerConfig?.server.enabled)
+
+  if (!opcuaServer?.opcuaServerConfig) {
+    return null
+  }
+
+  const config = opcuaServer.opcuaServerConfig
+
+  // 2. Parse debug-map.json into the same uppercase-path → packed-addr
+  //    Map the debugger uses. One source of truth for resolution.
+  const pathToAddr = parseDebugMapToInfoMap(debugMapContent)
+
+  if (pathToAddr.size === 0 && config.addressSpace.nodes.length > 0) {
+    throw new OpcUaConfigError(
+      'debug-map.json',
+      'leaves[]',
+      'Cannot resolve OPC-UA variable addresses: debug-map.json is empty or invalid.\n' +
+        'This may happen if the PLC program compilation failed.',
+    )
+  }
+
+  // 3. Build runtime configuration. Field-level resolution failures
+  //    accumulate into droppedPaths instead of aborting; we surface
+  //    each one via onWarn so the user can clean up the OPC-UA config
+  //    later if they care.
+  const droppedPaths: string[] = []
+  const fallbackWarnings: string[] = []
+  const droppedNodes: DroppedNode[] = []
+  const addressSpace = buildAddressSpace(config, pathToAddr, instances, droppedPaths, fallbackWarnings, droppedNodes)
+  if (onWarn) {
+    for (const message of fallbackWarnings) onWarn(message)
+    for (const { node, reason } of droppedNodes) {
+      onWarn(
+        `OPC-UA: tag "${node.displayName}" (${node.pouName}:${node.variablePath}) was left out of the build ` +
+          `because its variable no longer resolves. Remove it from the server's address space or re-pick ` +
+          `the variable.\n${reason}`,
+      )
+    }
+  }
+  if (onWarn && droppedPaths.length > 0) {
+    onWarn(
+      `OPC-UA: dropped ${droppedPaths.length} unresolvable variable path(s) ` +
+        `from the runtime config — likely library-FB internals (TON.STATE, ` +
+        `R_TRIG.M, …) saved before the variable picker started filtering them, ` +
+        `or variables removed from the program. Re-save the OPC-UA config ` +
+        `through the editor to clean these up permanently.`,
+    )
+    for (const path of droppedPaths) {
+      onWarn(`  dropped: ${path}`)
+    }
+  }
+
+  const runtimeConfig: RuntimeConfig = {
+    name: 'opcua_server',
+    protocol: 'OPC-UA',
+    config: {
+      format_version: OPCUA_CONFIG_FORMAT_VERSION,
+      server: buildServerConfig(config),
+      security: buildSecurityConfig(config),
+      users: buildUsersConfig(config),
+      cycle_time_ms: config.cycleTimeMs,
+      address_space: addressSpace,
+    },
+  }
+
+  return { runtime: runtimeConfig, server: config.server }
+}
+
+/**
+ * Author `conf/opcua.json` for Runtime v4.
+ *
+ * Thin wrapper over `buildOpcUaRuntimeConfig` — kept as its own export
+ * because the serialised form is a CONTRACT: the surrounding array, the
+ * two-space indent and the key order are what the v4 plugin reads, and the
+ * module's byte-identical-output guarantee is about this string. Callers that
+ * want the resolved data (the baremetal header generator) take the object
+ * instead of parsing this back.
+ */
+export const generateOpcUaConfig = (
+  servers: PLCServer[] | undefined,
+  debugMapContent: string,
+  instances: PLCInstanceInfo[],
+  onWarn?: (message: string) => void,
+): string | null => {
+  const resolved = buildOpcUaRuntimeConfig(servers, debugMapContent, instances, onWarn)
+  if (!resolved) return null
+  return JSON.stringify([resolved.runtime], null, 2)
+}
+
+/**
+ * Validates the OPC-UA configuration before generation.
+ * Returns validation errors without throwing.
+ */
+export const validateOpcUaConfig = (
+  config: OpcUaServerConfig,
+  debugMapContent: string,
+  instances: PLCInstanceInfo[],
+): { valid: boolean; errors: string[] } => {
+  const errors: string[] = []
+
+  // Check for enabled security profiles
+  const enabledProfiles = config.securityProfiles.filter((sp) => sp.enabled)
+  if (enabledProfiles.length === 0) {
+    errors.push('At least one security profile must be enabled')
+  }
+
+  // Check for username auth without users
+  const hasUsernameAuth = enabledProfiles.some((sp) => sp.authMethods.includes('Username'))
+  if (hasUsernameAuth && config.users.length === 0) {
+    errors.push('Username authentication is enabled but no users are configured')
+  }
+
+  // At most one enabled profile may offer Anonymous. The anonymous session role
+  // is a per-profile setting, but an anonymous connection carries no endpoint
+  // identity into the runtime, so it cannot tell which Anonymous profile a
+  // client came through — the runtime falls back to the first in list order.
+  // Rather than ship that ambiguity, reject it here: this is the fix, the
+  // runtime's load-time warning is only the backstop.
+  const anonymousProfiles = enabledProfiles.filter((sp) => sp.authMethods.includes('Anonymous'))
+  if (anonymousProfiles.length > 1) {
+    errors.push(
+      `Only one enabled security profile may allow Anonymous access; found ${anonymousProfiles.length} ` +
+        `(${anonymousProfiles.map((sp) => sp.name).join(', ')}). Anonymous sessions cannot be mapped to a ` +
+        `specific endpoint, so the anonymous role would be ambiguous. Disable Anonymous on all but one profile.`,
+    )
+  }
+
+  // Try to resolve all variables
+  const pathToAddr = parseDebugMapToInfoMap(debugMapContent)
+
+  for (const node of config.addressSpace.nodes) {
+    try {
+      switch (node.nodeType) {
+        case 'variable':
+          resolveVariableAddress(node, pathToAddr, instances)
+          break
+        case 'structure':
+          resolveStructureAddresses(node, pathToAddr, instances)
+          break
+        case 'array':
+          if (node.fields && node.fields.length > 0) {
+            resolveStructureAddresses(node, pathToAddr, instances)
+          } else if (resolveArrayElementFields(node, pathToAddr, instances).length === 0) {
+            // Not an array of a UDT / FB — must resolve as a plain array.
+            resolveArrayAddress(node, pathToAddr, instances)
+          }
+          break
+      }
+    } catch (error) {
+      if (error instanceof OpcUaConfigError) {
+        errors.push(error.message)
+      } else {
+        errors.push(getErrorMessage(error))
+      }
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  }
+}
+
+export type {
+  RuntimeAddressSpace,
+  RuntimeArray,
+  RuntimeConfig,
+  RuntimePluginConfig,
+  RuntimeSecurityConfig,
+  RuntimeSecurityProfile,
+  RuntimeServerConfig,
+  RuntimeStructure,
+  RuntimeStructureField,
+  RuntimeTrustedCertificate,
+  RuntimeUser,
+  RuntimeVariable,
+  RuntimeVariablePermissions,
+}

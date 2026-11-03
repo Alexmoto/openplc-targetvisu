@@ -1,0 +1,81 @@
+/**
+ * AcceleratorPort — Abstracts keyboard shortcuts and application-level actions.
+ *
+ * Editor adapter: Registers IPC event listeners for Electron menu accelerators.
+ *                 Each accelerator fires an IPC event from the main process menu.
+ * Web adapter:    Registers browser keyboard event listeners (e.g., Ctrl+S, Ctrl+Z).
+ *                 Shortcuts handled via useSaveShortcut, useUndoRedoShortcut hooks.
+ *
+ * This port provides a uniform way for the shared UI to subscribe to
+ * application-level actions without knowing the platform mechanism.
+ *
+ * ## Editor IPC methods replaced:
+ *   - window.bridge.createProjectAccelerator()
+ *   - window.bridge.handleOpenProjectRequest()
+ *   - window.bridge.openRecentAccelerator()
+ *   - window.bridge.saveProjectAccelerator()
+ *   - window.bridge.saveFileAccelerator()
+ *   - window.bridge.closeProjectAccelerator()
+ *   - window.bridge.closeTabAccelerator()
+ *   - window.bridge.deleteFileAccelerator()
+ *   - window.bridge.exportProjectRequest()
+ *   - window.bridge.findInProjectAccelerator()
+ *   - window.bridge.handleUndoRequest()
+ *   - window.bridge.handleRedoRequest()
+ *   - window.bridge.switchPerspective()
+ *   - window.bridge.aboutAccelerator()
+ *   - window.bridge.aboutModalAccelerator()
+ *   - All corresponding remove*Listener() methods
+ *
+ * ## Web equivalents:
+ *   - useSaveShortcut hook (Ctrl+S)
+ *   - useUndoRedoShortcut hook (Ctrl+Z, Ctrl+Shift+Z)
+ *   - Browser keyboard event listeners
+ */
+
+import type { Unsubscribe } from './types'
+
+export interface AcceleratorPort {
+  // --- Project actions ---
+  onCreateProject(callback: () => void): Unsubscribe
+  onOpenProject(callback: () => void): Unsubscribe
+  onOpenRecent(callback: (projectPath: string) => void): Unsubscribe
+  onSaveProject(callback: () => void): Unsubscribe
+  /** Save As. Desktop only in practice; web's adapter returns a no-op
+   *  unsubscribe like its other accelerators. */
+  onSaveProjectAs(callback: () => void): Unsubscribe
+  onSaveFile(callback: () => void): Unsubscribe
+  /** Retrieve Project from PLC. Desktop only in practice: the web build reaches
+   *  the same modal from its own File menu, which it always renders, so its
+   *  adapter returns a no-op unsubscribe like the other accelerators. */
+  onRetrieveProject(callback: () => void): Unsubscribe
+  /** Import PLCopen XML from the native macOS/Linux File menu; web renders its own File menu. */
+  onImportPlcopen(callback: () => void): Unsubscribe
+  onCloseProject(callback: () => void): Unsubscribe
+  onExportProject(callback: () => void): Unsubscribe
+  /** File > Print / Ctrl+P (Cmd+P). Preview is an alias into the same
+   *  export-PDF wizard, not a separate accelerator. */
+  onPrint(callback: () => void): Unsubscribe
+  onPageSetup(callback: () => void): Unsubscribe
+
+  // --- Editor actions ---
+  onCloseTab(callback: () => void): Unsubscribe
+  onDeleteFile(callback: () => void): Unsubscribe
+  onFindInProject(callback: () => void): Unsubscribe
+  onUndo(callback: () => void): Unsubscribe
+  onRedo(callback: () => void): Unsubscribe
+
+  // --- View actions ---
+  onSwitchPerspective(callback: () => void): Unsubscribe
+  onAbout(callback: () => void): Unsubscribe
+
+  /** Developer I/O image diagnostics, from the desktop's NATIVE menu — the one
+   *  a framed window shows, where the React menu bar is not on screen.
+   *  Optional because a platform without a native menu simply has no such
+   *  event; web reaches the same tab from the menu bar it always renders. */
+  onOpenDiagnostics?(callback: () => void): Unsubscribe
+
+  // --- App lifecycle ---
+  onQuitApp(callback: () => void): Unsubscribe
+  onRefresh(callback: () => void): Unsubscribe
+}

@@ -1,0 +1,169 @@
+import type { ReactNode } from 'react'
+
+import type { ReferenceImpactAnalysis } from '../../../utils/variable-references/types'
+import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../modal'
+
+type RenameImpactModalProps = {
+  open: boolean
+  oldName?: string
+  newName?: string
+  changes?: Array<{ oldName: string; newName?: string; oldType?: string; newType?: string }>
+  // The modal only renders the aggregate maps, so any location shape works.
+  impact: ReferenceImpactAnalysis<unknown>
+  // Copy overrides — defaults keep the original variable-rename wording.
+  title?: string
+  /** Replaces the "Renaming X to Y will affect:" line. */
+  description?: ReactNode
+  affectedListLabel?: string
+  byKindLabel?: string
+  confirmLabel?: string
+  confirmDescription?: string
+  cancelLabel?: string
+  cancelDescription?: string
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+export const RenameImpactModal = ({
+  open,
+  oldName,
+  newName,
+  changes,
+  impact,
+  title = 'Variable Changes: Impact Analysis',
+  description,
+  affectedListLabel = 'Affected POUs:',
+  byKindLabel = 'By Editor Type:',
+  confirmLabel = 'Yes, rename references',
+  confirmDescription = 'All references will be updated to use the new name',
+  cancelLabel = 'No, keep references unchanged',
+  cancelDescription = 'References will remain with the old name and will no longer match the renamed variable, causing them to become unresolved references',
+  onConfirm,
+  onCancel,
+}: RenameImpactModalProps) => {
+  if (!open) return null
+
+  const hasMultipleChanges = changes && changes.length > 1
+  const singleChange = changes && changes.length === 1 ? changes[0] : null
+
+  return (
+    <Modal open>
+      <ModalContent
+        className='flex max-h-[min(600px,92vh)] w-[600px] select-none flex-col gap-4 rounded-lg p-8'
+        onClose={onCancel}
+      >
+        <ModalHeader>
+          <ModalTitle className='text-sm font-medium text-neutral-950 dark:text-white'>{title}</ModalTitle>
+        </ModalHeader>
+
+        <div className='flex flex-col gap-3 overflow-y-auto'>
+          <div className='text-xs text-neutral-600 dark:text-neutral-50'>
+            {description !== undefined ? (
+              <p className='mb-2'>{description}</p>
+            ) : hasMultipleChanges ? (
+              <>
+                <p className='mb-2 font-medium'>The following variable changes will affect:</p>
+                <ul className='mb-2 list-inside list-disc space-y-1'>
+                  {changes.map((change, idx) => (
+                    <li key={idx}>
+                      {change.newName ? (
+                        <>
+                          Rename <span className='font-semibold'>{change.oldName}</span> to{' '}
+                          <span className='font-semibold'>{change.newName}</span>
+                        </>
+                      ) : (
+                        <>
+                          Change type of <span className='font-semibold'>{change.oldName}</span> from{' '}
+                          <span className='font-semibold'>{change.oldType}</span> to{' '}
+                          <span className='font-semibold'>{change.newType}</span>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : singleChange ? (
+              <p className='mb-2'>
+                {singleChange.newName ? (
+                  <>
+                    Renaming <span className='font-semibold'>{singleChange.oldName}</span> to{' '}
+                    <span className='font-semibold'>{singleChange.newName}</span> will affect:
+                  </>
+                ) : (
+                  <>
+                    Changing type of <span className='font-semibold'>{singleChange.oldName}</span> from{' '}
+                    <span className='font-semibold'>{singleChange.oldType}</span> to{' '}
+                    <span className='font-semibold'>{singleChange.newType}</span> will affect:
+                  </>
+                )}
+              </p>
+            ) : (
+              <p className='mb-2'>
+                Renaming <span className='font-semibold'>{oldName}</span> to{' '}
+                <span className='font-semibold'>{newName}</span> will affect:
+              </p>
+            )}
+          </div>
+
+          <div className='rounded-md border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-700 dark:bg-neutral-800'>
+            <div className='mb-3 text-xs font-semibold text-neutral-950 dark:text-white'>
+              Total References: {impact.totalReferences}
+            </div>
+
+            {impact.byPou.size > 0 && (
+              <div className='mb-3'>
+                <div className='mb-1 text-xs font-medium text-neutral-700 dark:text-neutral-300'>
+                  {affectedListLabel}
+                </div>
+                <ul className='list-inside list-disc space-y-1 text-xs text-neutral-600 dark:text-neutral-400'>
+                  {Array.from(impact.byPou.entries()).map(([pouName, count]) => (
+                    <li key={pouName}>
+                      {pouName}: {count} reference{count !== 1 ? 's' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {impact.byEditorType.size > 0 && (
+              <div>
+                <div className='mb-1 text-xs font-medium text-neutral-700 dark:text-neutral-300'>{byKindLabel}</div>
+                <ul className='list-inside list-disc space-y-1 text-xs text-neutral-600 dark:text-neutral-400'>
+                  {Array.from(impact.byEditorType.entries()).map(([editorType, count]) => (
+                    <li key={editorType}>
+                      {editorType.toUpperCase()}: {count} reference{count !== 1 ? 's' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          <div className='text-xs text-neutral-600 dark:text-neutral-50'>
+            <p className='font-medium'>What would you like to do?</p>
+            <ul className='mt-2 list-inside list-disc space-y-1'>
+              <li>
+                <span className='font-semibold'>{confirmLabel}:</span> {confirmDescription}
+              </li>
+              <li>
+                <span className='font-semibold'>{cancelLabel}:</span> {cancelDescription}
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <ModalFooter className='mt-auto flex justify-end gap-2'>
+          <button
+            onClick={onCancel}
+            className='h-8 w-full rounded bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-1000 dark:bg-neutral-850 dark:text-neutral-100'
+          >
+            {cancelLabel}
+          </button>
+          <button onClick={onConfirm} className='h-8 w-full rounded bg-brand px-3 py-1 text-xs text-white'>
+            {confirmLabel}
+          </button>
+        </ModalFooter>
+      </ModalContent>
+    </Modal>
+  )
+}

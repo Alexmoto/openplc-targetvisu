@@ -1,0 +1,1373 @@
+import type { VppPackagePin } from '../../../backend/shared/types/PLC/devices/configuration'
+import type { ConfiguredEtherCATDevice } from './esi-types'
+
+/** Default `T` is `unknown`, not `void`: TS 5.5+ collapses `{ success: true } & void` to `never`. */
+export type Result<T = unknown> = ({ success: true } & T) | { success: false; error: string }
+
+/** Unsubscribe function returned by event subscriptions */
+export type Unsubscribe = () => void
+
+export type PLCLanguage = 'IL' | 'ST' | 'LD' | 'FBD' | 'SFC'
+
+/** Extended languages supported by function blocks */
+export type PLCExtendedLanguage = PLCLanguage | 'python' | 'cpp'
+
+export type PouType = 'program' | 'function' | 'function-block'
+
+export type VariableClass = 'input' | 'output' | 'inOut' | 'external' | 'local' | 'temp' | 'global'
+
+export type VariableTypeDefinition = 'base-type' | 'user-data-type' | 'array' | 'derived'
+
+/** The **Flags** column; absent means plain `VAR`. */
+export type VariableFlag = 'constant' | 'retain'
+
+export interface PLCVariableType {
+  definition: VariableTypeDefinition
+  value: string
+  data?: {
+    baseType: { definition: 'base-type' | 'user-data-type'; value: string }
+    dimensions: Array<{ dimension: string }>
+  }
+}
+
+export interface PLCVariable {
+  id?: string
+  name: string
+  class?: VariableClass
+  type: PLCVariableType
+  /** The variable's binding: an alias name OR a literal IEC address (`%QX0.0`); empty = unlocated. */
+  location: string
+  initialValue?: string | null
+  documentation: string
+  debug?: boolean
+  /** IEC block qualifier; absent = plain `VAR`. See {@link VariableFlag}. */
+  flag?: VariableFlag
+}
+
+export interface PLCTask {
+  name: string
+  triggering: 'Cyclic' | 'Interrupt'
+  interval: string
+  priority: number
+}
+
+export interface PLCInstance {
+  name: string
+  task: string
+  program: string
+}
+
+export interface PLCStructureVariable {
+  name: string
+  type: PLCVariableType
+  initialValue?: { simpleValue: { value: string } }
+  documentation?: string
+}
+
+/** Compiled as a STRUCT type plus one global instance of it. */
+export interface PLCGlobalVariableList {
+  name: string
+  variables: PLCVariable[]
+  /** Uppercased `VAR_GLOBAL` qualifier text (`'CONSTANT'`, `'RETAIN PERSISTENT'`, …). */
+  qualifier?: string
+  /** Kept ONLY while the declaration does not parse (same contract as a POU's `variablesText`). */
+  text?: string
+  documentation?: string
+}
+
+export type PLCDataType =
+  | { name: string; derivation: 'structure'; variable: PLCStructureVariable[] }
+  | {
+      name: string
+      derivation: 'enumerated'
+      initialValue?: string
+      values: Array<{ description: string }>
+    }
+  | {
+      name: string
+      derivation: 'array'
+      baseType: PLCVariableType
+      initialValue?: string
+      dimensions: Array<{ dimension: string }>
+    }
+
+export interface PLCBody {
+  language: PLCExtendedLanguage | 'il' | 'st' | 'ld' | 'fbd' | 'sfc' | 'python' | 'cpp'
+  value: unknown
+}
+
+export interface PLCPou {
+  name: string
+  pouType: PouType
+  interface?: {
+    returnType?: string
+    variables: PLCVariable[]
+  }
+  body: PLCBody
+  documentation?: string
+  /**
+   * The POU's `VAR … END_VAR` declarations, verbatim, as the user wrote them.
+   *
+   * This is the source of truth for the variables, and `interface.variables`
+   * is the view of it the table renders (DOPE-650). The project file has
+   * always stored the declarations as IEC text; what changed is that the text
+   * is now KEPT rather than discarded the moment it parsed.
+   *
+   * Everything the model cannot carry lives here and only here: comments,
+   * blank lines, alignment, the user's choice of declaration ordering within a
+   * block. A table edit patches this text (`applyVariablesToText`) instead of
+   * regenerating it, so editing one cell no longer deletes the rest.
+   *
+   * Optional only for a POU created in memory this session and not yet
+   * serialised; anything loaded from disk carries it.
+   */
+  variablesText?: string
+  /**
+   * True when {@link variablesText} could not be parsed on load, so the editor
+   * should open this POU's variables in the code view for repair.
+   *
+   * An explicit flag rather than the old inference of "has text but no
+   * variables": every loaded POU carries its text now, and an empty POU
+   * legitimately has no variables, so that test matched a POU with nothing
+   * wrong with it.
+   */
+  variablesTextUnparsed?: boolean
+}
+
+export type PouLanguage = 'il' | 'st' | 'ld' | 'sfc' | 'fbd' | 'python' | 'cpp'
+
+export interface PLCFunction {
+  language: PouLanguage
+  name: string
+  returnType: string
+  variables: PLCVariable[]
+  body: PLCBody
+  documentation: string
+  variablesText?: string
+}
+
+export interface PLCFunctionBlock {
+  language: PouLanguage
+  name: string
+  variables: PLCVariable[]
+  body: PLCBody
+  documentation: string
+  variablesText?: string
+}
+
+export interface PLCProgram {
+  language: PouLanguage
+  name: string
+  variables: PLCVariable[]
+  body: PLCBody
+  documentation: string
+  variablesText?: string
+}
+
+export interface PLCGlobalVariable extends Omit<PLCVariable, 'class'> {
+  class: 'global'
+}
+
+export type ServerProtocol = 'modbus-tcp' | 's7comm' | 'ethernet-ip' | 'opcua'
+export type RemoteDeviceProtocol = 'modbus-tcp' | 'ethernet-ip' | 'ethercat' | 'profinet'
+
+// Modbus
+
+/** Wire transports a Modbus endpoint answers on, shared by the slave and the
+ *  master: the same two wires carry both roles. */
+export type ModbusTransport = 'rtu' | 'tcp'
+
+/** Modbus RTU parity, shared by the slave and the master. */
+export type ModbusParity = 'N' | 'E' | 'O'
+
+export interface ModbusSlaveConfig {
+  enabled: boolean
+  /** Transports this server answers on. RTU and TCP together are ONE server
+   *  with two transports, never two servers. Absent means TCP, which is what
+   *  every project saved before baremetal gained a real `PLCServer` implies. */
+  transports?: ModbusTransport[]
+  networkInterface: string
+  port: number
+  /** Meaningful on RTU, where it is the only addressing there is. On TCP the
+   *  MBAP unit id is a gateway routing field and is not filtered on. */
+  slaveId?: number
+  // RTU wiring, mirroring the master's serial half.
+  serialPort?: string
+  baudRate?: number
+  parity?: ModbusParity
+  stopBits?: number
+  dataBits?: number
+  bufferMapping?: ModbusBufferMapping
+}
+
+export interface ModbusBufferMapping {
+  holdingRegisters?: { qwCount?: number; mwCount?: number; mdCount?: number; mlCount?: number }
+  coils?: { qxBits?: number; mxBits?: number }
+  discreteInputs?: { ixBits?: number }
+  inputRegisters?: { iwCount?: number }
+}
+
+export interface ModbusIOPoint {
+  id: string
+  name: string
+  type: string
+  iecLocation: string
+  alias?: string
+}
+
+export interface ModbusIOGroup {
+  diagnostics?: import('../utils/modbus-diagnostics').ModbusDiagnostics
+  id: string
+  name: string
+  functionCode: '1' | '2' | '3' | '4' | '5' | '6' | '15' | '16'
+  cycleTime: number
+  offset: string
+  length: number
+  errorHandling: 'keep-last-value' | 'set-to-zero'
+  ioPoints?: ModbusIOPoint[]
+}
+
+export interface ModbusRemoteTcpConfig {
+  transport?: 'tcp' | 'rtu'
+  host?: string
+  port?: number
+  serialPort?: string
+  baudRate?: number
+  parity?: ModbusParity
+  stopBits?: number
+  dataBits?: number
+  slaveId?: number
+  timeout: number
+  ioGroups: ModbusIOGroup[]
+}
+
+export interface S7CommServerSettings {
+  enabled: boolean
+  bindAddress: string
+  port: number
+  maxClients: number
+  workIntervalMs: number
+  sendTimeoutMs: number
+  recvTimeoutMs: number
+  pingTimeoutMs: number
+  pduSize: number
+}
+
+export interface S7CommPlcIdentity {
+  name: string
+  moduleType: string
+  serialNumber: string
+  copyright: string
+  moduleName: string
+}
+
+export type S7CommBufferType =
+  | 'input'
+  | 'output'
+  | 'memory'
+  | 'bool_input'
+  | 'bool_output'
+  | 'bool_memory'
+  | 'byte_input'
+  | 'byte_output'
+  | 'int_input'
+  | 'int_output'
+  | 'int_memory'
+  | 'dint_input'
+  | 'dint_output'
+  | 'dint_memory'
+  | 'lint_input'
+  | 'lint_output'
+  | 'lint_memory'
+
+export interface S7CommBufferMapping {
+  type: S7CommBufferType
+  startBuffer: number
+  bitAddressing: boolean
+}
+
+export interface S7CommDataBlock {
+  dbNumber: number
+  description: string
+  sizeBytes: number
+  mapping: S7CommBufferMapping
+}
+
+export interface S7CommSystemArea {
+  enabled: boolean
+  sizeBytes: number
+  mapping?: S7CommBufferMapping
+}
+
+export interface S7CommSystemAreas {
+  peArea?: S7CommSystemArea
+  paArea?: S7CommSystemArea
+  mkArea?: S7CommSystemArea
+}
+
+export interface S7CommLogging {
+  logConnections: boolean
+  logDataAccess: boolean
+  logErrors: boolean
+}
+
+export interface S7CommSlaveConfig {
+  server: S7CommServerSettings
+  plcIdentity?: S7CommPlcIdentity
+  dataBlocks: S7CommDataBlock[]
+  systemAreas?: S7CommSystemAreas
+  logging?: S7CommLogging
+}
+
+export interface OpcUaServerSettings {
+  enabled: boolean
+  name: string
+  applicationUri: string
+  productUri: string
+  bindAddress: string
+  port: number
+  endpointPath: string
+}
+
+export type OpcUaSecurityPolicyType = 'None' | 'Basic128Rsa15' | 'Basic256' | 'Basic256Sha256'
+export type OpcUaSecurityModeType = 'None' | 'Sign' | 'SignAndEncrypt'
+export type OpcUaAuthMethod = 'Anonymous' | 'Username' | 'Certificate'
+
+export interface OpcUaSecurityProfile {
+  id: string
+  name: string
+  enabled: boolean
+  securityPolicy: OpcUaSecurityPolicyType
+  securityMode: OpcUaSecurityModeType
+  authMethods: OpcUaAuthMethod[]
+  /** Role granted to Anonymous sessions on this profile (viewer/operator/
+   *  engineer). Defaults to viewer (least privilege) when unset. The runtime
+   *  and the baremetal firmware enforce the per-variable matrix against it. */
+  anonymousRole?: 'viewer' | 'operator' | 'engineer'
+}
+
+export interface OpcUaUser {
+  id: string
+  type: 'password' | 'certificate'
+  username: string | null
+  /** Plaintext. See OpcUaUserSchema in backend/shared/types/PLC/open-plc.ts
+   *  for why the build, not the editor, derives the stored credential. */
+  password?: string | null
+  /** Legacy pre-hashed credential; passed through untouched. */
+  passwordHash: string | null
+  certificateId: string | null
+  role: 'viewer' | 'operator' | 'engineer'
+}
+
+export interface OpcUaTrustedCertificate {
+  id: string
+  pem: string
+  subject?: string
+  validFrom?: string
+  validTo?: string
+  fingerprint?: string
+}
+
+export type OpcUaPermission = 'r' | 'w' | 'rw'
+
+export interface OpcUaPermissions {
+  viewer: OpcUaPermission
+  operator: OpcUaPermission
+  engineer: OpcUaPermission
+}
+
+export interface OpcUaFieldConfig {
+  fieldPath: string
+  displayName: string
+  datatype?: string
+  permissions: OpcUaPermissions
+  fields?: OpcUaFieldConfig[]
+}
+
+export interface OpcUaNodeConfig {
+  id: string
+  pouName: string
+  variablePath: string
+  variableType: string
+  nodeId: string
+  browseName: string
+  displayName: string
+  description: string
+  permissions: OpcUaPermissions
+  nodeType: 'variable' | 'structure' | 'array'
+  fields?: OpcUaFieldConfig[]
+  arrayLength?: number
+  elementType?: string
+}
+
+export interface OpcUaAddressSpaceConfig {
+  namespaceUri: string
+  nodes: OpcUaNodeConfig[]
+}
+
+export interface OpcUaSecurityConfig {
+  serverCertificateStrategy: 'auto_self_signed' | 'custom'
+  serverCertificateCustom: string | null
+  serverPrivateKeyCustom: string | null
+  trustedClientCertificates: OpcUaTrustedCertificate[]
+}
+
+export interface OpcUaServerConfig {
+  server: OpcUaServerSettings
+  securityProfiles: OpcUaSecurityProfile[]
+  security: OpcUaSecurityConfig
+  users: OpcUaUser[]
+  cycleTimeMs: number
+  addressSpace: OpcUaAddressSpaceConfig
+}
+
+export interface PLCServer {
+  name: string
+  protocol: ServerProtocol
+  modbusSlaveConfig?: ModbusSlaveConfig
+  s7commSlaveConfig?: S7CommSlaveConfig
+  opcuaServerConfig?: OpcUaServerConfig
+}
+
+export interface EtherCATMasterConfig {
+  enabled?: boolean
+  networkInterface: string
+  cycleTimeUs: number
+  watchdogTimeoutCycles?: number
+  taskPriority?: number
+}
+
+export interface EthercatConfig {
+  masterConfig?: EtherCATMasterConfig
+  devices: ConfiguredEtherCATDevice[]
+}
+
+export interface PLCRemoteDevice {
+  name: string
+  protocol: RemoteDeviceProtocol
+  modbusTcpConfig?: ModbusRemoteTcpConfig
+  ethercatConfig?: EthercatConfig
+}
+
+export interface PLCProjectLibraryRef {
+  /** Strucpp manifest identifier; project ↔ system pool joins go through this field. */
+  name: string
+  /** Informational: the pool is matched on name alone today. */
+  version: string
+}
+
+export interface PLCProjectData {
+  targetVisu?: import('../targetvisu/model').TargetVisuDocument
+  dataTypes: PLCDataType[]
+  /** Optional on the wire so projects saved before GVLs existed still parse; absent reads as `[]`. */
+  globalVariableLists?: PLCGlobalVariableList[]
+  pous: PLCPou[]
+  configurations: {
+    resource: {
+      tasks: PLCTask[]
+      instances: PLCInstance[]
+      globalVariables: PLCVariable[]
+    }
+  }
+  servers?: PLCServer[]
+  remoteDevices?: PLCRemoteDevice[]
+  /** Opt-in libraries; bundled/canonical strucpp libraries are always-on and don't appear here. */
+  libraries?: PLCProjectLibraryRef[]
+  /** Read from `library.json` on open; never embedded in `project.json`. */
+  libraryManifest?: string
+  debugVariables?: {
+    global?: string[]
+    pous?: Record<string, string[]>
+  }
+}
+
+/** Alias used by Monaco completion providers */
+export type PLCProject = PLCProjectData
+
+export interface ProjectMeta {
+  name: string
+  type: 'plc-project' | 'plc-library'
+  path: string
+}
+
+/** Single source of truth for "is this project a library?" — never compare `meta.type` directly at a call site. */
+export function isLibraryProject(meta: { type: 'plc-project' | 'plc-library' } | null | undefined): boolean {
+  return meta?.type === 'plc-library'
+}
+
+/** True when the identifier names a project on Autonomy Edge rather than a file on this machine. */
+export function isRemoteProjectPath(identifier: string): boolean {
+  if (identifier.length === 0) {
+    return false
+  }
+
+  const isPosixAbsolute = identifier.startsWith('/')
+  // `C:\...` or `C:/...`, and `\\server\share` for a UNC path.
+  const isWindowsAbsolute = /^[A-Za-z]:[\\/]/.test(identifier) || identifier.startsWith('\\\\')
+
+  return !isPosixAbsolute && !isWindowsAbsolute
+}
+
+/** Per-project-type capability matrix. Independent of `useCapabilities()`, which gates by host platform. */
+export interface ProjectCapabilities {
+  hasPrograms: boolean
+  /** Show the Resource entry in the project tree. */
+  hasResource: boolean
+  /** Show Device / Configuration / Edge Devices entries. */
+  hasDevices: boolean
+  /** Show Server entries (Modbus / OPC-UA servers). */
+  hasServers: boolean
+  /** Show Remote-Device entries (Modbus client, EtherCAT). */
+  hasRemoteDevices: boolean
+  /** Show VPP vendor screens for the current board. */
+  hasVendorScreens: boolean
+  /** Compile / Run on Simulator / Upload / Start-Stop / Debug. */
+  hasProgramBuild: boolean
+  /** Show the Library-specific build button (produces `.stlib`). */
+  hasLibraryBuild: boolean
+  /** Harness program exercising every block — its own button, not `hasProgramBuild`'s. */
+  hasLibraryDebug: boolean
+  /** Show the version-control affordance. */
+  hasVersionControl: boolean
+  /** Show the debugger panel + watch list. */
+  hasDebugger: boolean
+  /** Show the runtime-connection status and Start/Stop controls. */
+  hasRuntimeControls: boolean
+  hasLibraryManifest: boolean
+}
+
+export function projectCapabilities(
+  meta: { type: 'plc-project' | 'plc-library' } | null | undefined,
+): ProjectCapabilities {
+  if (isLibraryProject(meta)) {
+    return {
+      hasPrograms: false,
+      hasResource: false,
+      hasDevices: false,
+      hasServers: false,
+      hasRemoteDevices: false,
+      hasVendorScreens: false,
+      hasProgramBuild: false,
+      hasLibraryBuild: true,
+      hasLibraryDebug: true,
+      hasVersionControl: false,
+      hasDebugger: false,
+      hasRuntimeControls: false,
+      hasLibraryManifest: true,
+    }
+  }
+  return {
+    hasPrograms: true,
+    hasResource: true,
+    hasDevices: true,
+    hasServers: true,
+    hasRemoteDevices: true,
+    hasVendorScreens: true,
+    hasProgramBuild: true,
+    hasLibraryBuild: false,
+    hasLibraryDebug: false,
+    hasVersionControl: true,
+    hasDebugger: true,
+    hasRuntimeControls: true,
+    hasLibraryManifest: false,
+  }
+}
+
+export type CompilerType = 'arduino-cli' | 'openplc-compiler' | 'simulator'
+
+import type { DebuggerTransport, TargetCapabilities } from '../utils/target-capabilities'
+
+export type { DebuggerTransport, TargetCapabilities }
+
+/** VPP-declared FQBN sub-option, e.g. Nano `cpu=atmega328old`. */
+export interface PlatformOptionValue {
+  id: string
+  label: string
+  help?: string
+}
+
+export interface PlatformOption {
+  key: string
+  label: string
+  default: string
+  help?: string
+  values: PlatformOptionValue[]
+}
+
+export interface BoardInfo {
+  compiler: CompilerType | (string & {})
+  core: string
+  /** Upload transport for arduino-cli targets: "ethernet" (LOGO! 8.2) is
+   *  flashed over the network; absent/"serial" is the default USB path. */
+  uploadMethod?: 'serial' | 'ethernet'
+  /**
+   * The board's fully-qualified name, e.g. `arduino:avr:uno`. The same string
+   * arduino-cli reads `build.mcu` from, which is what selects the firmware's
+   * I/O buffer sizes in `resources/sources/arduino/openplc.h` -- `core` alone
+   * cannot tell an Uno from a Mega. Absent for hals.json targets.
+   */
+  platform?: string
+  preview: string
+  specs: Record<string, string>
+  coreVersion?: string
+  pins?: {
+    defaultAin?: string[]
+    defaultAout?: string[]
+    defaultDin?: string[]
+    defaultDout?: string[]
+    pull?: PinPullSpec
+  }
+  /** When absent, the resolver in backend/shared infers capabilities from the legacy `compiler` field. */
+  capabilities?: Partial<TargetCapabilities>
+  vpp?: VppMetadata
+  /** The VPP manifest's `target.platformOptions`, flattened so device-screen UI need not reach into `vpp`. */
+  platformOptions?: PlatformOption[]
+  /** Hardware serial ports this board exposes. Absent → the editor assumes a single `Serial`. */
+  serialPorts?: string[]
+  /** Default serial port for the debugger. Absent → `Serial`. */
+  defaultSerial?: string
+  /** TCP carriers this board can bring up. Absent → every carrier stays on offer; declared only to REMOVE one the firmware can't serve. */
+  networkInterfaces?: string[]
+  /** Debug-channel resolver spec from hals.json/VPP manifest. Absent → "Debugging Not Available". */
+  debug?: import('./debug-spec-types').DebugSpec
+}
+
+export interface VppModuleDefinition {
+  id: string
+  name: string
+  /** Used by module-discovery to match a detected device. Modules with no hwId can only be added manually. */
+  hwId?: string
+  /** Vendor type id the configurator reports for this module; matched by exact string. */
+  typeId?: string
+  /** Bytes this module occupies in the device's input and output process images. */
+  processImage?: { inputBytes: number; outputBytes: number }
+  /** True for an always-present part of the device hardware (e.g. Arduino Opta's built-in I/O). Auto-placed and locked in slot 1. */
+  fixed?: boolean
+  image?: string
+  description?: string
+  specs?: Record<string, string>
+  /** Prefer `configScreenDefinition`, the parsed result. */
+  configScreen?: string
+  /** Populated only when `configScreen` resolves to a valid file. */
+  configScreenDefinition?: unknown
+  io: {
+    digitalInputs: number
+    digitalOutputs: number
+    analogInputs: number
+    analogOutputs: number
+  }
+  parameters?: Array<{
+    id: string
+    name: string
+    type: string
+    options?: string[]
+    default?: unknown
+    min?: number
+    max?: number
+  }>
+  addressMapping?: unknown
+}
+
+/** Screens the runtime provides and a VPP may replace. Closed union: an unlisted name is a typo. */
+export type NativeScreenId = 'persistent-storage'
+
+export interface VppMetadata {
+  packageId: string
+  /** From the manifest's `package.vendor.name`; groups boards under a heading in the device dropdown. */
+  vendor: string
+  deviceId: string
+  packagePath: string
+  screens: Record<string, unknown>
+  hidesNativeScreens?: NativeScreenId[]
+  /** Runtime plugin name from the device's `hal.configTemplate`; absent when the device has no valid one. */
+  pluginName?: string
+  moduleSystem: {
+    enabled: boolean
+    maxSlots: number
+    /** The device can report its installed modules on request. */
+    discoverySupported?: boolean
+    modules: VppModuleDefinition[]
+  } | null
+}
+
+export interface PackageManifest {
+  formatVersion: string
+  package: {
+    id: string
+    name: string
+    version: string
+    vendor: {
+      name: string
+      url?: string
+      logo: string
+    }
+    description: string
+    license?: string
+    /** Oldest editor that may install this package; the install gate refuses one whose floor is above `APP_VERSION`. */
+    minEditorVersion?: string
+    /** Oldest runtime this package works with. Checked at compile time, since the target device is unknown at install time. */
+    minRuntimeVersion?: string
+  }
+  devices: Array<{
+    id: string
+    name: string
+    category?: string
+    preview: string
+    target: {
+      type: string
+      platform?: string
+      core?: string
+      boardManagerUrl?: string
+      /** Appended to `platform` at compile/upload time. arduino-cli targets only. */
+      platformOptions?: PlatformOption[]
+      /** Exact core version a prebuilt arduino-hal was compiled against; the precompiled .a is ABI-locked to it. */
+      coreVersion?: string
+      /**
+       * Upload transport for arduino-cli targets. Absent/"serial" (default):
+       * `arduino-cli upload --port <serialPort>`. "ethernet": upload over the
+       * network — the editor passes the device IP (configuration
+       * runtimeIpAddress) as arduino-cli's `--port`, and the board's core
+       * platform.txt upload recipe performs the network transfer. Currently
+       * only the Siemens LOGO! 8.2 uses "ethernet". See manifest.schema.json.
+       */
+      uploadMethod?: 'serial' | 'ethernet'
+    }
+    specs?: Record<string, string>
+    hal: {
+      type: string
+      pluginType?: string
+      /** "source" (default): `pluginEntry` is compiled on the runtime. "prebuilt": it holds .o objects plus a link-only Makefile. */
+      provisioning?: string
+      pluginEntry?: string
+      configTemplate?: string
+      /** Shape of the generated plugin config. Absent → "slots". */
+      pluginConfigFormat?: 'slots' | 'io-ranges'
+      requirements?: string
+      source?: string
+      /** Prebuilt arduino-hal library directory, linked via --library alongside `hal.source`. */
+      precompiledLibrary?: string
+      /** PRESENCE is the signal: it resolves `TargetCapabilities.licenseStore` and drives the backend into the build. Absent → board answers `LIC_UNSUPPORTED`. */
+      licenseStore?: string | string[]
+      /** Informational: the real trust root is the public key compiled into the VPP, not this id. */
+      licenseKeyId?: string
+      compilerFlags?: {
+        c_flags?: string[]
+        cxx_flags?: string[]
+        ld_flags?: string[]
+      }
+      define?: string | string[]
+      extraArduinoLibraries?: string[]
+      libraries?: string
+    }
+    defaults?: {
+      runtimeIpAddress?: string
+      pins?: {
+        defaultDin?: string[]
+        defaultDout?: string[]
+        defaultAin?: string[]
+        defaultAout?: string[]
+        pull?: PinPullSpec
+      }
+    }
+    screens?: Record<string, string>
+    /** Hiding a native screen turns the native feature off, so only the vendor's driver handles it. */
+    hidesNativeScreens?: NativeScreenId[]
+    /** Hardware serial ports this device exposes (e.g. `['Serial', 'Serial1']`).
+     *  Surfaced onto `BoardInfo.serialPorts` and consumed by VPP screen
+     *  `select` fields via `optionsRef: 'board.serialPorts'`. */
+    serialPorts?: string[]
+    /** Name of the default serial port (usually the USB CDC port). Surfaced onto
+     *  `BoardInfo.defaultSerial`. Absent → `Serial`. */
+    defaultSerial?: string
+    /** Surfaced onto `BoardInfo.networkInterfaces`. Declared only to REMOVE a carrier the firmware can't serve. */
+    networkInterfaces?: string[]
+    /** Absence means no debug channel is declared. */
+    debug?: import('./debug-spec-types').DebugSpec
+    /** Merged over the preset the editor derives from the target type. */
+    capabilities?: Partial<TargetCapabilities>
+    moduleSystem?: {
+      enabled: boolean
+      maxSlots: number
+      discoverySupported?: boolean
+      /** Shell command the editor invokes to ask a connected device
+       *  to enumerate its modules. Returns lines parsed by the
+       *  module-system's discovery flow; format defined per package. */
+      discoveryCommand?: string
+      modules: VppModuleDefinition[]
+    }
+  }>
+}
+
+export interface InstalledPackage {
+  packageId: string
+  version: string
+  installedAt: string
+  path: string
+  devices: string[]
+}
+
+export interface ImportResult {
+  success: boolean
+  canceled?: boolean
+  packageId?: string
+  packageName?: string
+  devices?: string[]
+  error?: string
+}
+
+export interface RemoteVersionEntry {
+  version: string
+  downloadUrl: string
+  publishedAt?: string
+  /** Compared against `APP_VERSION` to flag incompatible entries in the dropdown. */
+  minEditorVersion?: string
+  deviceCount: number
+  releaseNotes?: string
+}
+
+export interface RemoteCatalogEntry {
+  packageId: string
+  name: string
+  vendor: {
+    name: string
+    url?: string
+    logoUrl?: string
+  }
+  description: string
+  license?: string
+  tags?: string[]
+  /** Ordered newest-first; UI code treats `versions[0]` as the latest. */
+  versions: RemoteVersionEntry[]
+}
+
+export interface RemoteCatalog {
+  entries: RemoteCatalogEntry[]
+  fetchedAt: string
+}
+
+export interface IoMappingEntry {
+  slot: number
+  moduleId: string
+  moduleName: string
+  channelName: string
+  channelType: string
+  dataType: string
+  iecAddress: string
+  alias: string
+  /** The three `mode*` fields are absent for static channels; they come from `perChannelChoices`. */
+  modeFieldId?: string
+  modeOptions?: string[]
+  modeValue?: string
+}
+
+export interface VendorIoMapping {
+  entries: IoMappingEntry[]
+}
+
+/** Deliberately NOT a pre-composed display string. */
+export interface CommunicationPort {
+  /** OS-canonical identifier, and the value actually opened (`COM5`, `/dev/ttyUSB0`). */
+  address: string
+  /** From arduino-cli, via the connected core's VID/PID. Absent when no core matched. */
+  boardName?: string
+  /** From `serialport` — the fallback descriptor when arduino-cli identified no board. */
+  manufacturer?: string
+}
+
+export interface SerialPort {
+  device: string
+  description?: string
+}
+
+export type PinType = 'digitalInput' | 'digitalOutput' | 'analogInput' | 'analogOutput'
+
+export type PinPullMode = 'none' | 'up' | 'down'
+
+export interface DevicePin {
+  pin: string
+  pinType: PinType
+  address: string
+  /** Participates in the alias registry. Used to be `name`; legacy projects auto-upgrade on load. */
+  alias?: string
+  /** Digital inputs only, and only when the board declares `pins.pull`. Absent → the board's default for the pin. */
+  pull?: PinPullMode
+}
+
+export interface PinPullOverride {
+  /** Shown read-only; takes precedence over `options`. */
+  fixed?: PinPullMode
+  options?: PinPullMode[]
+  default?: PinPullMode
+}
+
+/** VPP `defaults.pins.pull`: its presence turns on the Pull column of the pin table. */
+export interface PinPullSpec {
+  options: PinPullMode[]
+  default?: PinPullMode
+  /** Keyed by the pin name as written in the pin table (`"34"`, `"D0"`). */
+  pins?: Record<string, PinPullOverride>
+}
+
+/** Mirrors the runtime's own bounds (`webserver/retain_config.py`). */
+export const RETAIN_MIN_FLUSH_SECONDS = 1
+export const RETAIN_MAX_FLUSH_SECONDS = 3600
+export const DEFAULT_RETAIN_FLUSH_SECONDS = 5
+
+/** Delivered as `retain.conf` inside the program upload. */
+export interface PersistentStorageSettings {
+  /** Off by default; off means the upload carries no `retain.conf`, so the device store stays off. */
+  enabled: boolean
+  /** Absolute path on the DEVICE. Empty means "use the runtime's default". */
+  path: string
+  /** Commit period in seconds. The runtime rejects an out-of-range value at install time. */
+  flushSeconds: number
+}
+
+/** The vPLC a project targets, as `devices/configuration.json` records it. */
+export interface ProjectTargetDevice {
+  orchestratorId: string
+  deviceId: string
+  deviceName: string
+}
+
+export interface DeviceConfiguration {
+  deviceBoard: string
+  communicationPort: string
+  runtimeIpAddress?: string
+  /** Absent means this project does not use persistent storage — the signal that keeps the runtime's built-in store off. */
+  persistentStorage?: PersistentStorageSettings
+  /** Per-board archive: a storage path is a property of the target box, so retargeting shouldn't carry one device's path onto another. */
+  persistentStorageByBoard?: Record<string, PersistentStorageSettings>
+  /** Active board's VPP vendor-screen data; always mirrors `vendorScreenDataByBoard[deviceBoard]`. */
+  vendorScreenData?: Record<string, unknown>
+  /** Per-board archive of vendor-screen data, since VPP screens are board-specific. Legacy flat data is migrated on load. */
+  vendorScreenDataByBoard?: Record<string, Record<string, unknown>>
+  /** Choices for the board's `target.platformOptions`, keyed by option `key`. Cleared when the selected board changes. */
+  selectedPlatformOptions?: Record<string, string>
+  /**
+   * Which vendor package each VPP board was authored against —
+   * `packageId@version` plus the `contentHash` of the signed payload.
+   *
+   * Recorded when a VPP board is selected, and compared against what is
+   * installed at authoring and again before an upload: a package that moved
+   * underneath a program would otherwise only show up as wrong I/O on the
+   * device. Per-board for the same reason `vendorScreenDataByBoard` is, and
+   * optional for back-compat with every project saved before pinning existed —
+   * absent simply means there is nothing to compare.
+   */
+  vppPackagePinsByBoard?: Record<string, VppPackagePin>
+  /** The vPLC this project targets on web; reopening the project selects it again when it is still listed. */
+  targetDevice?: ProjectTargetDevice
+}
+
+export type PlcStatus = 'INIT' | 'RUNNING' | 'STOPPED' | 'ERROR' | 'EMPTY' | 'TRANSITIONING' | 'UNKNOWN'
+
+/** `name` falls back to `plc-task-<idx>` when the .so doesn't expose one. */
+export interface TaskTimingStats {
+  name: string
+  scan_count: number
+  scan_time_min: number | null
+  scan_time_max: number | null
+  scan_time_avg: number | null
+  cycle_time_min: number | null
+  cycle_time_max: number | null
+  cycle_time_avg: number | null
+  cycle_latency_min: number | null
+  cycle_latency_max: number | null
+  cycle_latency_avg: number | null
+  overruns: number
+}
+
+export interface PluginStatsField {
+  label: string
+  value: string | number | boolean
+  unit?: string
+}
+
+export interface PluginStatsPayload {
+  label: string
+  fields: PluginStatsField[]
+}
+
+export interface TimingStats {
+  tasks: TaskTimingStats[]
+  plugin_stats?: Record<string, PluginStatsPayload>
+}
+
+export type RuntimeLogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR'
+
+export interface RuntimeLogEntry {
+  id: number | null
+  timestamp: string
+  level: RuntimeLogLevel
+  message: string
+}
+
+/** A channel kind a board's `debug` spec can declare — the SPEC's vocabulary, not necessarily what a live session rides (see `DebugMedium`). */
+export type DebugConnectionType = 'tcp' | 'rtu' | 'websocket' | 'simulator'
+
+/** What a live debug session actually rides; wider than `DebugConnectionType` since the browser can also use `webrtc` or `http-relay`. */
+export type DebugMedium = DebugConnectionType | 'webrtc' | 'http-relay'
+
+/** Media that can carry a CONTROL channel the connection manager physically holds open and polls. */
+export type DeviceLinkTransport = 'rtu' | 'tcp' | 'simulator'
+
+export interface DebugConnectionConfig {
+  connectionType: DebugConnectionType
+  connectionParams: {
+    ipAddress?: string
+    port?: string
+    baudRate?: number
+    slaveId?: number
+    /**
+     * An id a board flashed before 4.3.0 may still answer the editor on, tried
+     * only after `slaveId` has gone unanswered. Not a manifest field: the editor
+     * reads it from the project's own legacy screen state, because the packages
+     * no longer declare the screen it lived on.
+     */
+    jwtToken?: string
+  }
+}
+
+export interface DebugVariableResult {
+  success: boolean
+  tick?: number
+  lastIndex?: number
+  data?: number[]
+  error?: string
+  needsReconnect?: boolean
+}
+
+export interface DebugSetResult {
+  success: boolean
+  error?: string
+}
+
+export interface Md5VerifyResult {
+  success: boolean
+  match?: boolean
+  targetMd5?: string
+  /** Detected from the runtime's MD5 response trailer; feeds the renderer's byte-swap layer. Omitted on failure. */
+  targetEndian?: 'le' | 'be'
+  error?: string
+}
+
+export interface SimulatorDebugResult {
+  success: boolean
+  tick?: number
+  lastIndex?: number
+  data?: string // hex string
+  error?: string
+}
+
+export interface CompileProgressEvent {
+  stage: 'xml' | 'st' | 'c' | 'glue' | 'arduino' | 'upload' | 'done' | 'error'
+  message: string
+  progress?: number
+  level?: string
+  firmwarePath?: string
+  plcStatus?: string
+  /** Structured strucpp diagnostic for click-to-open in the console. Absent for plain progress messages. */
+  compileError?: StructuredCompileError
+}
+
+/** Subset of strucpp's `CompileError` carried over IPC — only what the console/navigation consume. */
+export interface StructuredCompileError {
+  message: string
+  line: number
+  column: number
+  endLine?: number
+  endColumn?: number
+  file?: string
+  severity: 'error' | 'warning' | 'info'
+  pouName?: string
+  pouKind?: 'PROGRAM' | 'FUNCTION' | 'FUNCTION_BLOCK'
+  section?: 'interface' | 'var-block' | 'body'
+  bodyLine?: number
+  variableName?: string
+}
+
+export interface CompileResult {
+  success: boolean
+  message?: string
+  hexPath?: string
+  /** Generated Structured Text program — available for runtime upload after compilation. */
+  programSt?: string
+  error?: string
+}
+
+export interface DebugCompileResult {
+  success: boolean
+  debugContent?: string
+  md5?: string
+  error?: string
+}
+
+/** Deliberately carries no verification field: running a library is its own action, via the debug harness. */
+export interface CompileLibraryResult {
+  success: boolean
+  /** Absolute path, set only on success. */
+  stlibPath?: string
+  /** Manifest name extracted from `library.json`. */
+  libraryName?: string
+  error?: string
+}
+
+/** Function Block Instance Info — represents a specific FB instance for debugging */
+export interface FbInstanceInfo {
+  fbTypeName: string
+  programName: string
+  programInstanceName: string
+  fbVariableName: string
+  key: string
+}
+
+/** Debug Tree Node — represents a node in the hierarchical debugger variable tree */
+export interface DebugTreeNode {
+  name: string
+  fullPath: string
+  compositeKey: string
+  type: string
+  isComplex: boolean
+  isExpanded?: boolean
+  children?: DebugTreeNode[]
+  debugIndex?: number
+  arrayIndices?: number[]
+  /** Member names of an enumerated type, indexed by the underlying integer value; the wire still carries an INT. */
+  enumValues?: string[]
+}
+
+/** Union type representing logs from either v3 (string) or v4 (array) runtime */
+export type PlcLogs = string | RuntimeLogEntry[]
+
+/** Maximum number of log entries to keep in the client-side buffer */
+export const LOG_BUFFER_CAP = 1000
+
+/** Type guard to check if logs are in v4 format (array of objects) */
+export function isV4Logs(logs: PlcLogs): logs is RuntimeLogEntry[] {
+  return Array.isArray(logs)
+}
+
+/** Type guard to check if logs are in v3 format (plain string) */
+export function isV3Logs(logs: PlcLogs): logs is string {
+  return typeof logs === 'string'
+}
+
+/** One SGR-colour run. `className` is a Tailwind class string, absent when unstyled. */
+export interface LogSegment {
+  text: string
+  className?: string
+}
+
+/** What a caller hands to `addLog`. Deliberately has no `id`: the store mints the rendering key itself. */
+export interface LogObject {
+  level?: 'debug' | 'info' | 'warning' | 'error'
+  message: string
+  tstamp?: Date
+  /** When set, the console renders the bracketed POU prefix as a clickable button. */
+  compileError?: StructuredCompileError
+  /** Styled runs, set only when the source emitted SGR colour; `message` always holds the same text with escapes stripped. */
+  segments?: LogSegment[]
+  /** True while this entry is an in-place line a terminal would still overwrite; a newline clears the flag. */
+  transient?: boolean
+}
+
+export type Platform = 'linux' | 'darwin' | 'win32' | ''
+
+export type Architecture = 'x64' | 'arm' | ''
+
+export interface SystemInfo {
+  OS: Platform
+  architecture: Architecture
+  prefersDarkMode: boolean
+  isWindowMaximized: boolean
+}
+
+export interface RecentProject {
+  name: string
+  path: string
+  lastOpenedAt: string
+  createdAt: string
+}
+
+/** Resolved by the composition root, not read from the store. */
+export interface AIFeatureConfig {
+  /** Whether the AI feature is enabled on this platform */
+  isFeatureEnabled: boolean
+  /** Whether the user has previously consented to AI usage */
+  hasUserConsented: boolean
+  /** User preference: whether inline ghost-text completions are active in editors */
+  inlineCompletionsEnabled: boolean
+}
+
+export type ChatMessageRole = 'user' | 'assistant'
+
+/** Plain user text is normalized to `[{ type: 'text', text: '…' }]`, so readers never branch on string vs array. */
+export type AIChatContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | {
+      type: 'tool_result'
+      tool_use_id: string
+      content: string
+      is_error?: boolean
+    }
+
+export type ChatMessage = {
+  id: string
+  role: ChatMessageRole
+  /** String for legacy text-only turns; blocks for restored ones, so `tool_use`/`tool_result` survive a reload. */
+  content: string | AIChatContentBlock[]
+  timestamp: number
+  rating?: 'up' | 'down'
+  /** Absent for in-progress, local-only turns. */
+  conversationId?: string
+}
+
+/** Mirrors the backend `ResolvedEntitlements`/`ResolvedUsage` shapes, surfaced via `GET /me/entitlements` and `GET /me/usage`. */
+
+/** Subscription status as reported by the backend (Paddle-backed). */
+export type SubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'paused' | 'canceled' | 'expired'
+
+/** Plan level slug (standard < plus < premium). */
+export type PlanLevelSlug = 'standard' | 'plus' | 'premium'
+
+/** Open-ended: the backend may emit further booleans as features land. */
+export type PlanFeatures = {
+  hasAiEngineer?: boolean
+  hasAiChat?: boolean
+  hasPrivateProjects?: boolean
+  hasOrganizations?: boolean
+  hasCodesysImporter?: boolean
+  hasOnPrem?: boolean
+  hasSla?: boolean
+  hasSoc2Badge?: boolean
+  hasVersionControl?: boolean
+  [key: string]: boolean | undefined
+}
+
+/** Shared header on both `/me/entitlements` and `/me/usage`. */
+export interface EntitlementSource {
+  subscriptionId: string
+  subscriptionStatus: SubscriptionStatus
+  planSlug: string
+  planDisplayName: string
+  planLevelSlug: PlanLevelSlug
+  tier: number
+}
+
+/** Numeric counter with a nullable cap (null = unlimited). */
+export interface UsageCounter {
+  used: number
+  limit: number | null
+  remaining: number | null
+}
+
+/** Response shape of `GET /me/entitlements`. */
+export interface AIEntitlements {
+  source: EntitlementSource
+  limits: {
+    maxOrchestrators: number | null
+    maxDevices: number | null
+    maxPrivateProjects: number | null
+    maxPublicProjects: number | null
+    maxOrgMembers: number | null
+    maxTeamWorkspaces: number | null
+  }
+  acu: {
+    monthlyAcu: number
+    rateLimitWindowHours: number
+    rateLimitWindowPercent: number
+    marginPercent: number | null
+  }
+  features: PlanFeatures
+}
+
+/** Response shape of `GET /me/usage`. */
+export interface AIUsage {
+  source: EntitlementSource
+  orchestrators: UsageCounter
+  devices: UsageCounter
+  privateProjects: UsageCounter
+  publicProjects: UsageCounter
+  organizations: {
+    used: number
+    allowed: boolean
+  }
+  acu: {
+    used: number
+    monthlyLimit: number
+    remaining: number
+    rateLimitWindowHours: number
+    rateLimitWindowPercent: number
+  }
+}
+
+/** Thrown by autonomy-edge's `CreditGuard` from `/ai/chat` and `/ai/complete`. */
+export type BillingErrorPayload = {
+  /** `subscription_past_due` is a lapsed payment method: the plan is still there, the card is not. */
+  code: 'insufficient_acu' | 'subscription_inactive' | 'rate_limit_exceeded' | 'subscription_past_due'
+  message: string
+  /** Set when `code === 'insufficient_acu'`. ACU remaining in the period. */
+  remaining?: number
+  /** Set when `code === 'insufficient_acu'`. ACU the request would have used. */
+  required?: number
+  /** Set when `code === 'insufficient_acu'`. Plan's monthly ACU cap. */
+  monthlyLimit?: number
+  /** Set when `code === 'subscription_inactive'`. Reason the subscription is blocking. */
+  subscriptionStatus?: SubscriptionStatus
+  /** Optional deep-link to the autonomy-edge billing portal. */
+  reactivateUrl?: string
+  /** `rate_limit_exceeded` only: ISO-8601 reset time, `null` if the backend couldn't compute it. */
+  resetsAt?: string | null
+}
+
+export type FBDRungState = {
+  comment: string
+  selectedNodes: import('@xyflow/react').Node[]
+  nodes: import('@xyflow/react').Node[]
+  edges: import('@xyflow/react').Edge[]
+}
+
+/** Lives here, not in the ladder slice, so `RungLadderState` can reference it across layers. */
+export type HandleBranch = {
+  /** The block node ID this branch connects to */
+  blockId: string
+  /** The handle ID on the block (e.g., "R", "PV", "CV") */
+  handleId: string
+  /** Direction: 'input' means elements feed INTO the block, 'output' means elements come OUT */
+  direction: 'input' | 'output'
+  /** Ordered list of node IDs in this branch (left-to-right for input, block-to-right for output) */
+  nodeIds: string[]
+}
+
+export type RungLadderState = {
+  id: string
+  comment: string
+  defaultBounds: number[]
+  reactFlowViewport: number[]
+  selectedNodes: import('@xyflow/react').Node[]
+  nodes: import('@xyflow/react').Node[]
+  edges: import('@xyflow/react').Edge[]
+  /** Index of active handle branches in this rung (undefined for backward compatibility) */
+  handleBranches?: HandleBranch[]
+}
+
+export type WebRTCConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'error' | 'failed'
+
+/** Narrow callback interface for the WebRTC connection manager. */
+export interface WebRTCSessionCallbacks {
+  setStatus: (status: WebRTCConnectionStatus) => void
+  setError: (error: string | null) => void
+  setSessionId: (id: string | null) => void
+  setReconnectAttempt: (attempt: number) => void
+  startSession: (params: { deviceId: string; deviceName: string; agentId: string }) => void
+  endSession: () => void
+}
+
+/** Composite key for identifying a variable reference in the system */
+export type VariableReference = {
+  pouName: string
+  variableName: string
+  variableType: PLCVariableType
+}

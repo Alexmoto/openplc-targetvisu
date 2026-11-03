@@ -1,0 +1,55 @@
+import type { LogObject } from '../../../../middleware/shared/ports/types'
+
+export type LogLevel = 'debug' | 'info' | 'warning' | 'error'
+
+export type TimestampFormat = 'full' | 'time' | 'none'
+
+export type ConsoleFilters = {
+  levels: Record<LogLevel, boolean>
+  searchTerm: string
+  timestampFormat: TimestampFormat
+}
+
+/**
+ * A log as the store holds it: the caller's {@link LogObject} plus the `id`
+ * the slice minted for it. The id exists only so the console's list has a
+ * stable React key — nothing outside the renderer reads it, which is why
+ * callers neither supply nor see it.
+ */
+export type LogEntry = LogObject & { id: string }
+
+export type ConsoleState = {
+  logs: LogEntry[]
+  filters: ConsoleFilters
+  // Monotonic nonce bumped each time something (e.g. a build start) wants the
+  // console to become visible and re-attach to the tail. Consumers compare it
+  // to the previous value and, on change, reveal the console panel and perform
+  // a single "kick to bottom" so auto-follow resumes — without overriding the
+  // user's manual scroll position at any other time.
+  followRequestId: number
+}
+
+/** Per-write directives for {@link ConsoleActions.addLog}. */
+export type AddLogOptions = {
+  /**
+   * This line came from a carriage-return redraw, so it overwrites the
+   * in-place line above it when that line is still open (`transient`).
+   * A write directive rather than entity state — whether the line stays
+   * open afterwards is recorded on the entry itself.
+   */
+  redraw?: boolean
+}
+
+export type ConsoleActions = {
+  addLog: (log: LogObject, options?: AddLogOptions) => void
+  clearLogs: () => void
+  setLevelFilter: (level: LogLevel, enabled: boolean) => void
+  setSearchTerm: (term: string) => void
+  setTimestampFormat: (format: TimestampFormat) => void
+  // Reveal the console and kick it to the latest line (re-engaging auto-follow).
+  requestConsoleFollow: () => void
+}
+
+export type ConsoleSlice = ConsoleState & {
+  consoleActions: ConsoleActions
+}

@@ -1,0 +1,33 @@
+# Pull request info
+
+## References
+
+### If applicable substitute the issue reference to the one that this PR refers
+
+This PR resolve the *#issue_number*.
+
+### Link to Jira task
+
+*[jira task](link to jira)*
+
+## Description of the changes proposed
+
+- ...
+- ...
+
+## DOD checklist
+
+- [ ] The code is complete and according to developers’ standards.
+- [ ] I have performed a self-review of my code.
+- [ ] Adapters stay thin: no logic added outside the shared surface (CLAUDE.md, "Thin adapters").
+- [ ] Meet the acceptance criteria.
+- [ ] Unit tests are written and green.
+- [ ] Test coverage: __ %.
+- [ ] Integration tests are written and green.
+- [ ] Changes were communicated and updated in the ticket description.
+- [ ] Reviewed and accepted by the Product Owner.
+- [ ] End-to-end test are successful.
+
+## Contributor License Agreement
+
+- [ ] I have read and agree to the [Contributor License Agreement, version 1.0](https://github.com/Autonomy-Logic/openplc-editor/blob/development/CLA.md)

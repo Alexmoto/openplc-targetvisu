@@ -1,0 +1,723 @@
+import * as Switch from '@radix-ui/react-switch'
+import { toast } from '@root/frontend/components/_features/[app]/toast/use-toast'
+import { useOpenPLCStore, useOpenPLCStoreApi } from '@root/frontend/store'
+import type { LibraryState } from '@root/frontend/store/slices/library'
+import { cn } from '@root/frontend/utils/cn'
+import { hasLegacyInOutOutputHandle } from '@root/frontend/utils/graphical/in-out-pin-rules'
+import {
+  assembleVariables,
+  buildNextExtensibleInput,
+  classifyBlockVariables,
+  getMinInputCount,
+  rebuildVariablesForInputCount,
+  removeLastExtensibleInput,
+} from '@root/frontend/utils/PLC/extensible-block-variables'
+import { PLCPou } from '@root/middleware/shared/ports'
+import { useEffect, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+
+import {
+  BlockNode,
+  BlockNodeData,
+  BlockNodeElement,
+  BlockVariant as LadderBlockVariant,
+} from '../../../../../../../_atoms/graphical-editor/ladder/block'
+import { buildBlockNode } from '../../../../../../../_atoms/graphical-editor/ladder/buildNodes'
+import { BasicNodeData } from '../../../../../../../_atoms/graphical-editor/ladder/utils/types'
+import { getBlockSize } from '../../../../../../../_atoms/graphical-editor/ladder/utils/utils'
+import { getLadderPouVariablesRungNodeAndEdges } from '../../../../../../../_atoms/graphical-editor/ladder/utils/utils'
+import { BlockVariant } from '../../../../../../../_atoms/graphical-editor/types/block'
+import { getBlockDocumentation, getVariableRestrictionType } from '../../../../../../../_atoms/graphical-editor/utils'
+import { InputWithRef } from '../../../../../../../_atoms/input'
+import { updateDiagramElementsPosition } from '../../../../../../../_molecules/graphical-editor/ladder/rung/ladder-utils/elements/diagram'
+import { reconcileBranchesIfNeeded } from '../../../../../../../_molecules/graphical-editor/ladder/rung/ladder-utils/elements/handle-branch'
+import { Modal, ModalContent, ModalTitle } from '../../../../../../../_molecules/modal'
+import { useBoundEditorModel, useBoundPou } from '../../../active-context'
+import ArrowButtonGroup from '../../arrow-button-group'
+import { ModalBlockLibrary } from './library'
+
+type BlockElementProps<T> = {
+  isOpen: boolean
+  onClose?: () => void
+  selectedNode: BlockNode<T>
+}
+
+const searchLibraryByPouName = (libraries: LibraryState['libraries'], pous: PLCPou[], pouName: string) => {
+  let libraryBlock: unknown = undefined
+
+  const filteredLibraries = libraries.system.filter((library) =>
+    pous.find((pou) => pou.name === pouName)?.pouType === 'function'
+      ? library.pous.some((pou) => pou.type === 'function')
+      : true,
+  )
+
+  for (const block of filteredLibraries) {
+    const foundPou = block.pous.find((pou) => pou.name === pouName)
+    if (foundPou) {
+      libraryBlock = foundPou
+      break
+    }
+  }
+
+  return libraryBlock
+}
+
+const BlockElement = <T extends object>({ isOpen, onClose, selectedNode }: BlockElementProps<T>) => {
+  const store = useOpenPLCStoreApi()
+  const pouName = useBoundPou()
+  const editor = useBoundEditorModel()
+  const updateModelVariables = useOpenPLCStore((state) => state.editorActions.updateModelVariables)
+  const { setNodes, setEdges, setHandleBranches } = useOpenPLCStore((state) => state.ladderFlowActions)
+  const pous = useOpenPLCStore((state) => state.project.data.pous)
+  const { updateVariable, deleteVariable } = useOpenPLCStore((state) => state.projectActions)
+  const libraries = useOpenPLCStore((state) => state.libraries)
+  const onOpenChange = useOpenPLCStore((state) => state.modalActions.onOpenChange)
+
+  const maxInputs = 20
+
+  const inputNameRef = useRef<HTMLInputElement>(null)
+  const inputInputsRef = useRef<HTMLInputElement>(null)
+
+  const [node, setNode] = useState<BlockNode<object>>(selectedNode)
+  const LadderBlockVariant = node.data.variant as LadderBlockVariant
+  const lockExecutionControl = node.data.lockExecutionControl
+
+  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<LadderBlockVariant | null>(null)
+  const [documentation, setDocumentation] = useState<string | null>(
+    getBlockDocumentation(LadderBlockVariant as BlockVariant),
+  )
+  const [formState, setFormState] = useState<{
+    name: string
+    inputs: string
+    executionOrder: string
+    executionControl: boolean
+  }>({
+    name: LadderBlockVariant.name === '???' ? '' : LadderBlockVariant.name,
+    inputs:
+      LadderBlockVariant?.variables
+        .filter((variable) => (variable.class === 'input' || variable.class === 'inOut') && variable.name !== 'EN')
+        .length.toString() || '0',
+    // Ladder has no execution order: rung position IS the order. Any value a
+    // project already carries is dropped on the next edit rather than kept
+    // alive by this dialog (DOPE-606).
+    executionOrder: '0',
+    executionControl: selectedNode.data.executionControl,
+  })
+
+  const isFormValid = Object.values(formState).every((value) => value !== '')
+  const isBlockDifferent = selectedNode !== node
+
+  // No execution-order dirty check here, unlike the FBD dialog: a ladder block
+  // has no execution order to edit (see below), so every control that remains
+  // -- input count, the execution-control switch, a resolvable name -- calls
+  // `setNode` and is already covered by `isBlockDifferent`.
+
+  useEffect(() => {
+    if (!selectedFileKey) return
+
+    const [type, selectedLibrary, selectedPou] = selectedFileKey?.split('/') || []
+    if (type === 'system' && selectedLibrary && selectedPou) {
+      const library = libraries.system.find((library) => library.name === selectedLibrary)
+      const pou = library?.pous.find((pou) => pou.name === selectedPou) as LadderBlockVariant
+      setSelectedFile(pou)
+      return
+    }
+    if (type === 'user' && selectedLibrary) {
+      const library = libraries.user.find((library) => library.name === selectedLibrary) as LadderBlockVariant
+      if (library) {
+        setSelectedFile(library)
+        return
+      }
+    }
+    setSelectedFile(null)
+  }, [selectedFileKey])
+
+  useEffect(() => {
+    if (selectedFile && selectedFile !== selectedNode.data.variant) {
+      const [type, _selectedLibrary, _selectedPou] = selectedFileKey?.split('/') || []
+
+      let pouLibrary = undefined
+      if (type === 'user') {
+        const pou = pous.find((pou) => pou.name === selectedFile?.name)
+        if (!pou) return
+        const variables = (pou.interface?.variables ?? []).map((variable) => ({
+          name: variable.name,
+          class: variable.class,
+          type: { definition: variable.type.definition, value: variable.type.value.toUpperCase() },
+        }))
+        if (pou.pouType === 'function') {
+          const returnType = pou.interface?.returnType ?? ''
+          const variable = getVariableRestrictionType(returnType)
+          variables.push({
+            name: 'OUT',
+            class: 'output',
+            type: {
+              definition: (variable.definition as 'array' | 'base-type' | 'user-data-type' | 'derived') ?? 'derived',
+              value: returnType.toUpperCase(),
+            },
+          })
+        }
+
+        pouLibrary = {
+          name: pou.name,
+          type: pou.pouType as 'function-block' | 'function',
+          variables: variables,
+          documentation: pou.documentation,
+          extensible: false,
+        }
+      }
+
+      const newNode = buildBlockNode({
+        id: node.id,
+        posX: node.position.x,
+        posY: node.position.y,
+        handleX: node.data.inputConnector?.glbPosition.x || 0,
+        handleY: node.data.inputConnector?.glbPosition.y || 0,
+        variant: pouLibrary ?? selectedFile,
+        executionControl: formState.executionControl,
+      })
+      setNode({
+        ...newNode,
+        data: {
+          ...newNode.data,
+          executionOrder: 0,
+          variable: selectedNode.data.variable,
+        },
+      })
+
+      const newNodeDataVariant = newNode.data.variant as LadderBlockVariant
+      const formName: string = newNodeDataVariant.name
+      const formInputs: string = newNodeDataVariant.variables
+        .filter((variable) => (variable.class === 'input' || variable.class === 'inOut') && variable.name !== 'EN')
+        .length.toString()
+
+      setFormState((prevState) => ({
+        ...prevState,
+        name: formName,
+        inputs: formInputs,
+        executionControl: newNode.data.executionControl,
+      }))
+      setDocumentation(getBlockDocumentation(newNodeDataVariant as BlockVariant))
+    }
+  }, [selectedFile])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target
+    let formValue = value
+    if (id === 'name') {
+      formValue = value
+    }
+    setFormState((prevState) => ({ ...prevState, [id]: formValue }))
+  }
+
+  const handleNameInputSubmit = () => {
+    const libraryBlock = searchLibraryByPouName(libraries, pous, formState.name)
+    if (libraryBlock) {
+      setSelectedFile(libraryBlock as LadderBlockVariant)
+    }
+  }
+
+  const handleInputsIncrement = () => {
+    if (Number(formState.inputs) >= maxInputs) return
+    setFormState((prevState) => ({
+      ...prevState,
+      inputs: String(Number(prevState.inputs) + 1),
+    }))
+
+    const newInput = buildNextExtensibleInput(LadderBlockVariant.variables)
+    const classified = classifyBlockVariables(LadderBlockVariant.variables)
+    classified.extensibleInputs.push(newInput)
+    const blockVariables = assembleVariables(classified) as LadderBlockVariant['variables']
+
+    const { height } = getBlockSize(
+      { ...LadderBlockVariant, variables: blockVariables },
+      {
+        x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+        y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+      },
+    )
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...LadderBlockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  const handleInputsDecrement = () => {
+    const result = removeLastExtensibleInput(LadderBlockVariant.variables, 2)
+    if (!result) return
+
+    const nonENCount = result.filter((v) => (v.class === 'input' || v.class === 'inOut') && v.name !== 'EN').length
+    setFormState((prevState) => ({
+      ...prevState,
+      inputs: String(nonENCount),
+    }))
+
+    const blockVariables = result as LadderBlockVariant['variables']
+
+    const { height } = getBlockSize(
+      { ...LadderBlockVariant, variables: blockVariables },
+      {
+        x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+        y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+      },
+    )
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...LadderBlockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  const handleInputsSubmit = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { value: EventValue } = e.target
+    const minInputs = getMinInputCount(LadderBlockVariant.variables, 2)
+
+    const value = Math.max(minInputs, Math.min(Number(EventValue), maxInputs))
+    setFormState((prevState) => ({ ...prevState, inputs: String(value) }))
+
+    const blockVariables = rebuildVariablesForInputCount(
+      LadderBlockVariant.variables,
+      value,
+    ) as LadderBlockVariant['variables']
+
+    const { height } = getBlockSize(
+      { ...LadderBlockVariant, variables: blockVariables },
+      {
+        x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+        y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+      },
+    )
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...LadderBlockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  const handleExecutionControlChange = (checked: boolean) => {
+    if (lockExecutionControl) return
+
+    setFormState((prevState) => ({ ...prevState, executionControl: checked }))
+
+    const newNode = buildBlockNode({
+      id: node.id,
+      posX: node.position.x,
+      posY: node.position.y,
+      handleX: node.data.inputConnector?.glbPosition.x || 0,
+      handleY: node.data.inputConnector?.glbPosition.y || 0,
+      variant: LadderBlockVariant,
+      executionControl: checked,
+    })
+
+    setNode({
+      ...newNode,
+      data: { ...newNode.data, variable: selectedNode.data.variable },
+    })
+  }
+
+  const handleClearForm = () => {
+    setFormState({ name: '', inputs: '', executionOrder: '0', executionControl: false })
+    setSelectedFileKey(null)
+    setSelectedFile(null)
+  }
+
+  const handleCloseModal = () => {
+    handleClearForm()
+    if (onClose) onClose()
+  }
+
+  const handleBlockSubmit = () => {
+    // A block still drawn with a VAR_IN_OUT pin on BOTH sides has not been
+    // converted yet, and rebuilding it here drops that output-side pin -- so
+    // any wire reading the pin would be left pointing at a handle the new node
+    // does not have. Converting it as a side effect of an unrelated edit would
+    // also break the promise the project-open warning makes ("nothing is
+    // changed until you do"), so refuse and point at the update badge, the way
+    // the update path itself refuses an ambiguous in-out feed.
+    //
+    // `selectedNode` FIRST, and not `node` alone: picking a replacement variant
+    // rebuilds `node` under current rules, which clears the legacy pin from the
+    // copy while the diagram edges being remapped below are still the original
+    // node's. Checking only the rebuilt copy let the swap path walk straight
+    // past this guard.
+    if (hasLegacyInOutOutputHandle(selectedNode) || hasLegacyInOutOutputHandle(node)) {
+      toast({
+        title: 'Update this block first',
+        description:
+          'It is still drawn with a VAR_IN_OUT pin on both sides. Hover the block and click its ' +
+          'update badge to convert it, then reapply this change.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    // The rung is boolean power flow, so it can only land on BOOL pins. A block
+    // whose top input or top output is not BOOL therefore has to carry EN/ENO.
+    // That rule is NOT re-implemented here: ladder's own
+    // `getBlockVariantAndExecutionControl` already forces execution control on
+    // in exactly that case (and sets `lockExecutionControl`), and
+    // `buildBlockNode` runs it for every block placed on a rung. Passing the
+    // form's value through means the rebuilt block obeys the same rule as a
+    // freshly placed one, with one implementation to drift from.
+    const newNode = buildBlockNode({
+      id: `BLOCK_${uuidv4()}`,
+      posX: selectedNode.position.x,
+      posY: selectedNode.position.y,
+      handleX: selectedNode.data.inputConnector?.glbPosition.x || 0,
+      handleY: selectedNode.data.inputConnector?.glbPosition.y || 0,
+      variant: LadderBlockVariant,
+      executionControl: formState.executionControl,
+    })
+    newNode.data = {
+      ...newNode.data,
+      // Always 0 in ladder: the walker buckets anything > 0 ahead of everything
+      // else GLOBALLY across rungs, so a stale number here would hoist this
+      // block above earlier rungs and silently break rung-order semantics.
+      executionOrder: 0,
+    }
+
+    const { ladderFlows } = store.getState()
+    const { rung, edges, variables } = getLadderPouVariablesRungNodeAndEdges(pouName, pous, ladderFlows, {
+      nodeId: selectedNode.id,
+    })
+    if (!rung) return
+
+    if (variables.selected && variables.all) {
+      if (LadderBlockVariant.type === 'function') {
+        deleteVariable({
+          rowId: variables.all.indexOf(variables.selected),
+          scope: 'local',
+          associatedPou: pouName,
+        })
+        if (
+          editor.type === 'plc-graphical' &&
+          editor.variable.display === 'table' &&
+          parseInt(editor.variable.selectedRow) === variables.all.indexOf(variables.selected)
+        ) {
+          updateModelVariables({ display: 'table', selectedRow: -1 })
+        }
+        newNode.data = { ...newNode.data, variable: { name: '' } }
+      } else {
+        updateVariable({
+          data: {
+            type: {
+              definition: 'derived',
+              value: (newNode.data as BlockNodeData<LadderBlockVariant>).variant.name,
+            },
+          },
+          rowId: variables.all.indexOf(variables.selected),
+          scope: 'local',
+          associatedPou: pouName,
+        })
+        newNode.data = { ...newNode.data, variable: variables.selected }
+      }
+    }
+
+    let newNodes = [...rung.nodes]
+    let newEdges = [...rung.edges]
+
+    newNodes = newNodes.map((n) => (n.id === node.id ? newNode : n))
+
+    // Reconcile branches when the block changes: remap surviving branches
+    // to the new block ID and remove branches for deleted/incompatible handles.
+    // Must run BEFORE main connector edge remapping so branch edges get new IDs
+    // and the main remapping loop below won't overwrite them.
+    const reconciled = reconcileBranchesIfNeeded(
+      { ...rung, nodes: newNodes, edges: newEdges },
+      node.id,
+      newNode.id,
+      LadderBlockVariant?.variables ?? [],
+    )
+    if (reconciled) {
+      newNodes = reconciled.nodes
+      newEdges = reconciled.edges
+    }
+    const reconciledHandleBranches = reconciled?.handleBranches
+
+    // Remap main connector edges (inputConnector/outputConnector) to new block ID.
+    // Branch edges are already remapped by reconcileBranches (their IDs changed,
+    // so the old edge.id won't match in newEdges).
+    // Re-point this node's edges onto the rebuilt node BY PIN NAME, with one
+    // ladder-specific exception.
+    //
+    // Every edge used to be forced onto `inputConnector` / `outputConnector`,
+    // which are just the FIRST pin on each side. That is right for the RUNG
+    // CHAIN -- in ladder the wire entering and leaving a block is power flow,
+    // and it belongs on the connectors -- but it is wrong for the block's data
+    // pins, which were all collapsed onto the first one, losing the wires to
+    // IN2, IN3 ... (DOPE-611).
+    //
+    // So: a pin that still exists on the rebuilt node keeps its wire, which
+    // covers the whole same-variant case and the matching pins of a swap; the
+    // rung chain follows the connectors as before; anything else is dropped
+    // and reported rather than piled onto the first pin.
+    // Handle type taken from the node itself, so this cannot drift from the
+    // builder and needs neither an import nor an assertion.
+    const pinIds = (handles: typeof newNode.data.inputHandles): Set<string> =>
+      new Set((handles ?? []).map((handle) => handle.id).filter((id): id is string => !!id))
+    const newInputPins = pinIds(newNode.data.inputHandles)
+    const newOutputPins = pinIds(newNode.data.outputHandles)
+
+    // The connectors the EXISTING edges ride, read from `selectedNode` and not
+    // from `node`: picking a replacement variant rebuilds `node` with the
+    // REPLACEMENT's connector ids, while the edges being remapped here belong
+    // to `selectedNode.id`. Comparing against the rebuilt copy made the rung
+    // chain unrecognisable on a swap, and it was dropped instead of moved.
+    const oldInputConnector = selectedNode.data.inputConnector?.id
+    const oldOutputConnector = selectedNode.data.outputConnector?.id
+    const newInputConnector = newNode.data.inputConnector?.id
+    const newOutputConnector = newNode.data.outputConnector?.id
+
+    /** The handle this endpoint should ride on the rebuilt node, or false to drop it. */
+    const resolveHandle = (
+      handle: string | null | undefined,
+      pins: Set<string>,
+      oldConnector: string | undefined,
+      newConnector: string | undefined,
+    ): string | null | undefined | false => {
+      // The RUNG CHAIN first, before any pin-name match. An edge riding the old
+      // connector is power flow, and it has to follow the new connector even
+      // when the old connector's NAME survives on the replacement as an
+      // ordinary data pin -- `AND`'s `IN1` connector becoming `ADD`'s `IN1`
+      // data pin, say, where keeping the rung on `IN1` leaves it sharing a pin
+      // with the branch `reconcileBranches` just rebuilt there.
+      if (handle && oldConnector && handle === oldConnector && newConnector) return newConnector
+      if (handle && pins.has(handle)) return handle
+      return false
+    }
+
+    // One pass over the affected edges, keyed by id, so an edge that is BOTH a
+    // source and a target of this block -- a self-loop, which the canvas allows
+    // -- has both endpoints resolved together. Two passes rewrote the id on the
+    // first and then failed to find the edge on the second, leaving the other
+    // endpoint pointing at a node that no longer exists.
+    const affected = new Map<string, (typeof newEdges)[number]>()
+    for (const edge of [...(edges.source ?? []), ...(edges.target ?? [])]) affected.set(edge.id, edge)
+
+    const replacements = new Map<string, (typeof newEdges)[number] | null>()
+    for (const edge of affected.values()) {
+      let next = { ...edge, id: edge.id.replace(node.id, newNode.id) }
+      let drop = false
+
+      if (edge.source === selectedNode.id) {
+        const resolved = resolveHandle(edge.sourceHandle, newOutputPins, oldOutputConnector, newOutputConnector)
+        if (resolved === false) drop = true
+        else next = { ...next, source: newNode.id, sourceHandle: resolved }
+      }
+      if (!drop && edge.target === selectedNode.id) {
+        const resolved = resolveHandle(edge.targetHandle, newInputPins, oldInputConnector, newInputConnector)
+        if (resolved === false) drop = true
+        else next = { ...next, target: newNode.id, targetHandle: resolved }
+      }
+      replacements.set(edge.id, drop ? null : next)
+    }
+
+    // Replace IN PLACE, never append. `reconcileBranches` above has already
+    // rewritten the branch edges and changed their ids, so an id from `edges`
+    // may no longer be in `newEdges` -- appending it back would resurrect a
+    // stale edge alongside the reconciled one and leave two wires on one pin.
+    let droppedWires = 0
+    newEdges = newEdges.flatMap((edge) => {
+      if (!replacements.has(edge.id)) return [edge]
+      const replacement = replacements.get(edge.id) ?? null
+      if (replacement === null) {
+        droppedWires += 1
+        return []
+      }
+      return [replacement]
+    })
+
+    if (droppedWires > 0) {
+      toast({
+        title: `${droppedWires} connection${droppedWires === 1 ? '' : 's'} removed`,
+        description:
+          `The replacement block has no matching pin for ${droppedWires === 1 ? 'it' : 'them'}. ` +
+          'Reconnect to the pins you want.',
+        variant: 'fail',
+      })
+    }
+
+    const { nodes: variableNodes, edges: variableEdges } = updateDiagramElementsPosition(
+      {
+        ...rung,
+        nodes: newNodes,
+        edges: newEdges,
+        ...(reconciledHandleBranches && { handleBranches: reconciledHandleBranches }),
+      },
+      [rung.defaultBounds[0], rung.defaultBounds[1]],
+    )
+
+    setNodes({
+      editorName: pouName,
+      rungId: rung.id,
+      nodes: variableNodes,
+    })
+    setEdges({
+      editorName: pouName,
+      rungId: rung.id,
+      edges: variableEdges,
+    })
+    if (reconciledHandleBranches) {
+      setHandleBranches({
+        editorName: pouName,
+        rungId: rung.id,
+        handleBranches: reconciledHandleBranches,
+      })
+    }
+
+    handleCloseModal()
+  }
+
+  const labelStyle = 'text-sm font-medium text-neutral-950 dark:text-white'
+  const inputStyle =
+    'border dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-850 h-[30px] w-full rounded-lg border-neutral-300 px-[10px] text-xs text-neutral-700 outline-none focus:border-brand'
+
+  return (
+    <Modal open={isOpen} onOpenChange={(open) => onOpenChange('block-ladder-element', open)}>
+      {/* <ModalTrigger>Open</ModalTrigger> */}
+      <ModalContent
+        onEscapeKeyDown={(event) => {
+          event.preventDefault()
+          handleCloseModal()
+        }}
+        onPointerDownOutside={(event) => {
+          event.preventDefault()
+          handleCloseModal()
+        }}
+        className='h-[739px] w-[625px] select-none flex-col gap-8 px-14 py-4'
+      >
+        <ModalTitle className='text-xl font-medium text-neutral-950 dark:text-white'>Block Properties</ModalTitle>
+        <div className='flex h-[587px] w-full justify-between'>
+          <div id='container-modifier-variable' className='h-full w-[236px]'>
+            <div className='flex h-full w-full flex-col gap-2'>
+              <label className={labelStyle}>Type:</label>
+              <ModalBlockLibrary selectedFileKey={selectedFileKey} setSelectedFileKey={setSelectedFileKey} />
+              <div className='border-neural-100 h-full max-h-[119px] overflow-hidden rounded-lg border px-1 py-4 text-xs font-normal text-neutral-950 dark:border-neutral-850 dark:text-neutral-100'>
+                <div className='h-full overflow-y-auto'>
+                  <span className='h-full whitespace-pre-line px-1 dark:text-neutral-100'>{documentation}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id='preview' className='flex h-full w-[236px] flex-col gap-2'>
+            <label htmlFor='name' className={labelStyle}>
+              Name:
+            </label>
+            <InputWithRef
+              id='name'
+              ref={inputNameRef}
+              className={inputStyle}
+              placeholder='???'
+              type='text'
+              value={formState.name}
+              onChange={handleInputChange}
+              onBlur={handleNameInputSubmit}
+              onKeyDown={(e) => e.key === 'Enter' && inputNameRef.current?.blur()}
+            />
+            {LadderBlockVariant.type === 'function' && LadderBlockVariant.extensible && (
+              <>
+                <label htmlFor='inputs' className={labelStyle}>
+                  Inputs:
+                </label>
+                <div className='flex items-center gap-1'>
+                  <InputWithRef
+                    id='inputs'
+                    ref={inputInputsRef}
+                    className={inputStyle}
+                    placeholder=''
+                    type='number'
+                    value={formState.inputs}
+                    onChange={handleInputChange}
+                    onBlur={(e) => handleInputsSubmit(e)}
+                    onKeyDown={(e) => e.key === 'Enter' && inputInputsRef.current?.blur()}
+                  />
+                  <ArrowButtonGroup
+                    onIncrement={() => handleInputsIncrement()}
+                    onDecrement={() => handleInputsDecrement()}
+                  />
+                </div>
+              </>
+            )}
+            <div className='flex items-center gap-2'>
+              <label htmlFor='executionControlSwitch' className={labelStyle}>
+                Execution Control:
+              </label>
+              <Switch.Root
+                className={cn(
+                  'relative h-4 w-[29px] cursor-pointer rounded-full bg-neutral-300 shadow-[0_4_4_1px] outline-none transition-all duration-150 data-[state=checked]:bg-brand dark:bg-neutral-850',
+                  {
+                    'cursor-not-allowed opacity-50': lockExecutionControl,
+                  },
+                )}
+                id='executionControlSwitch'
+                onCheckedChange={handleExecutionControlChange}
+                checked={formState.executionControl}
+              >
+                <Switch.Thumb className='block h-[14px] w-[14px] translate-x-0.5 rounded-full bg-white shadow-[0_0_4_1px] transition-all duration-150 will-change-transform data-[state=checked]:translate-x-[14px]' />
+              </Switch.Root>
+            </div>
+
+            <label htmlFor='block-preview' className={labelStyle}>
+              Preview
+            </label>
+            <div
+              id='block-preview'
+              className='flex h-[330px] items-center justify-center rounded-lg border-[2px] border-brand-dark bg-transparent dark:border-neutral-850'
+            >
+              <BlockNodeElement
+                data={node.data}
+                height={node.height || 0}
+                width={node.width || 0}
+                selected={false}
+                disabled={true}
+                scale={310 / ((node.height || 310) <= 310 ? 310 : node.height || 310)}
+              />
+            </div>
+          </div>
+        </div>
+        <div className='flex !h-8 w-full justify-evenly gap-7'>
+          <button
+            className='h-full w-[236px] items-center rounded-lg bg-neutral-100 text-center font-medium text-neutral-1000 dark:bg-neutral-850 dark:text-neutral-100'
+            onClick={handleCloseModal}
+          >
+            Cancel
+          </button>
+          <button
+            className={
+              'h-full w-[236px] items-center rounded-lg bg-brand text-center font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'
+            }
+            disabled={!isFormValid || !isBlockDifferent}
+            onClick={handleBlockSubmit}
+          >
+            Ok
+          </button>
+        </div>
+      </ModalContent>
+    </Modal>
+  )
+}
+
+export default BlockElement

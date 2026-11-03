@@ -1,0 +1,18 @@
+*       text    eol=lf
+*.exe   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.icns  binary
+*.eot   binary
+*.otf   binary
+*.ttf   binary
+*.woff  binary
+*.woff2 binary
+
+##########################
+# Identification for binary files used as compilers/transpilers
+##########################
+iec2c   binary
+resources/bin/**/*  binary

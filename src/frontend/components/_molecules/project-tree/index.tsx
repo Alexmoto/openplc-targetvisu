@@ -1,0 +1,958 @@
+import * as Popover from '@radix-ui/react-popover'
+import { ComponentPropsWithoutRef, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { ArrowIcon } from '../../../assets/icons/interface/Arrow'
+import { CloseIcon } from '../../../assets/icons/interface/Close'
+import { ConfigIcon } from '../../../assets/icons/interface/Config'
+import { DeviceTransferIcon } from '../../../assets/icons/interface/DeviceTransfer'
+import { DuplicateIcon } from '../../../assets/icons/interface/Duplicate'
+import { MoreOptionsIcon } from '../../../assets/icons/interface/MoreOptions'
+import { PencilIcon } from '../../../assets/icons/interface/Pencil'
+import { SoftMotionIcon } from '../../../assets/icons/interface/SoftMotion'
+import { ArrayIcon } from '../../../assets/icons/project/Array'
+import { CppIcon } from '../../../assets/icons/project/Cpp'
+import { DataTypeIcon } from '../../../assets/icons/project/DataType'
+import { DeviceIcon } from '../../../assets/icons/project/Device'
+import { EnumIcon } from '../../../assets/icons/project/Enum'
+import { FBDIcon } from '../../../assets/icons/project/FBD'
+import { FunctionIcon } from '../../../assets/icons/project/Function'
+import { FunctionBlockIcon } from '../../../assets/icons/project/FunctionBlock'
+import { GlobalVariableListIcon } from '../../../assets/icons/project/GlobalVariableList'
+import { ILIcon } from '../../../assets/icons/project/IL'
+import { LDIcon } from '../../../assets/icons/project/LD'
+import { LibraryManifestIcon } from '../../../assets/icons/project/LibraryManifest'
+import { OrchestratorIcon } from '../../../assets/icons/project/Orchestrator'
+import { PLCIcon } from '../../../assets/icons/project/PLC'
+import { ProgramIcon } from '../../../assets/icons/project/Program'
+import { PythonIcon } from '../../../assets/icons/project/Python'
+import { RemoteDeviceIcon } from '../../../assets/icons/project/RemoteDevice'
+import { ResourceIcon } from '../../../assets/icons/project/Resource'
+import { ServerIcon } from '../../../assets/icons/project/Server'
+import { SFCIcon } from '../../../assets/icons/project/SFC'
+import { STIcon } from '../../../assets/icons/project/ST'
+import { StructureIcon } from '../../../assets/icons/project/Structure'
+import { UsersIcon } from '../../../assets/icons/project/Users'
+import { useOpenPLCStore, useOpenPLCStoreApi } from '../../../store'
+import { elementNameCollision, type NamedElementKind } from '../../../store/slices/shared/name-collision'
+import { WorkspaceProjectTreeLeafType } from '../../../store/slices/workspace/types'
+import { cn } from '../../../utils/cn'
+import { isUnsaved, unsavedLabel } from '../../../utils/unsaved-label'
+import { HighlightedText } from '../../_atoms/highlighted-text'
+import { toast } from '../../_features/[app]/toast/use-toast'
+
+const pousAllLanguages = ['il', 'st', 'python', 'cpp', 'ld', 'sfc', 'fbd'] as const
+
+type IProjectTreeRootProps = ComponentPropsWithoutRef<'ul'> & {
+  label: string
+  children: ReactNode
+}
+const ProjectTreeRoot = ({ children, label, ...res }: IProjectTreeRootProps) => {
+  const [isOpen, setIsOpen] = useState(true)
+  const handleVisibility = useCallback(() => setIsOpen(!isOpen), [isOpen])
+
+  return (
+    <div className='select-none'>
+      <ul className='list-none p-0' {...res}>
+        <li
+          className=' flex cursor-pointer flex-row items-center py-1 pl-3 hover:bg-slate-50 dark:hover:bg-neutral-900'
+          onClick={handleVisibility}
+        >
+          <ArrowIcon
+            direction='right'
+            className={cn(`mr-[6px] h-4 w-4 stroke-brand-light transition-all ${isOpen && 'rotate-270 stroke-brand'}`)}
+          />
+          <PLCIcon />
+          <span
+            className={cn(
+              'ml-1 truncate font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+              isOpen && 'font-medium text-neutral-1000 dark:text-white',
+            )}
+          >
+            {label}
+          </span>
+        </li>
+        {children && isOpen && (
+          <div>
+            <ul>
+              {children && (
+                <div>
+                  <ul className='list-none p-0'>{children}</ul>
+                </div>
+              )}
+            </ul>
+          </div>
+        )}
+      </ul>
+    </div>
+  )
+}
+
+type ProjectTreeBranchProps = ComponentPropsWithoutRef<'li'> & {
+  branchTarget:
+    | 'data-type'
+    | 'global-variable-list'
+    | 'function'
+    | 'function-block'
+    | 'program'
+    | 'resource'
+    | 'device'
+    | 'server'
+    | 'remote-device'
+  children?: ReactNode
+}
+
+const BranchSources = {
+  'data-type': { BranchIcon: DataTypeIcon, label: 'Data Types' },
+  // CODESYS groups Global Variable Lists under their own tree node; the lists inside are
+  // named by the user (`GVL` by default), which is also the name their members are
+  // qualified with in code.
+  'global-variable-list': { BranchIcon: GlobalVariableListIcon, label: 'Global Variables' },
+  function: { BranchIcon: FunctionIcon, label: 'Functions' },
+  'function-block': { BranchIcon: FunctionBlockIcon, label: 'Function Blocks' },
+  program: { BranchIcon: ProgramIcon, label: 'Programs' },
+  resource: { BranchIcon: ResourceIcon, label: 'Resource' },
+  device: { BranchIcon: DeviceIcon, label: 'Device' },
+  server: { BranchIcon: ServerIcon, label: 'Servers' },
+  'remote-device': { BranchIcon: RemoteDeviceIcon, label: 'Remote Devices' },
+}
+const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranchProps) => {
+  const {
+    project: {
+      data: { pous, dataTypes, globalVariableLists, servers, remoteDevices },
+    },
+    fileActions: { getFile },
+  } = useOpenPLCStore()
+  const [branchIsOpen, setBranchIsOpen] = useState(false)
+  const { BranchIcon, label } = BranchSources[branchTarget]
+  const handleBranchVisibility = useCallback(() => setBranchIsOpen(!branchIsOpen), [branchIsOpen])
+  const hasAssociatedPou =
+    pous.some((pou) => pou.pouType === branchTarget) ||
+    branchTarget === 'device' ||
+    (branchTarget === 'data-type' && dataTypes.length > 0) ||
+    (branchTarget === 'global-variable-list' && (globalVariableLists?.length ?? 0) > 0) ||
+    (branchTarget === 'server' && servers !== undefined && servers.length > 0) ||
+    (branchTarget === 'remote-device' && remoteDevices !== undefined && remoteDevices.length > 0)
+  useEffect(() => setBranchIsOpen(hasAssociatedPou), [hasAssociatedPou])
+
+  const { file: associatedFile } = getFile({ name: label || '' })
+  const handleLabel = useCallback((label: string | undefined) => unsavedLabel(label, associatedFile), [associatedFile])
+
+  return (
+    <li aria-expanded={branchIsOpen} className='cursor-pointer aria-expanded:cursor-default ' {...res}>
+      <div
+        className='flex w-full cursor-pointer flex-row items-center gap-1 py-1 pl-[18px] hover:bg-slate-50 dark:hover:bg-neutral-900'
+        onClick={hasAssociatedPou ? handleBranchVisibility : undefined}
+      >
+        {hasAssociatedPou ? (
+          <ArrowIcon
+            direction='right'
+            className={cn(
+              `mr-[6px] h-4 w-4 stroke-brand-light transition-all ${branchIsOpen && 'rotate-270 stroke-brand'}`,
+            )}
+          />
+        ) : (
+          <div className='w-[22px]' />
+        )}
+        <div className='h-5 w-5'>
+          <BranchIcon size='sm' />
+        </div>
+        <span
+          className={cn(
+            'truncate font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+            branchIsOpen && 'font-medium text-neutral-1000 dark:text-white',
+            isUnsaved(associatedFile) && 'italic',
+          )}
+        >
+          {handleLabel(label) || ''}
+        </span>
+      </div>
+
+      {children && branchIsOpen && (
+        <div>
+          <ul>
+            {children && (
+              <div>
+                <ul className='list-none p-0'>{children}</ul>
+              </div>
+            )}
+          </ul>
+        </div>
+      )}
+    </li>
+  )
+}
+
+// 'ml-4',
+
+type IProjectTreeNestedBranchProps = ComponentPropsWithoutRef<'li'> & {
+  nestedBranchTarget: 'array' | 'enumerated' | 'structure' | 'configuration'
+  children?: ReactNode
+}
+
+const NestedBranchSources = {
+  array: { BranchIcon: ArrayIcon, label: 'Arrays' },
+  enumerated: { BranchIcon: EnumIcon, label: 'Enums' },
+  structure: { BranchIcon: StructureIcon, label: 'Structures' },
+  configuration: { BranchIcon: ConfigIcon, label: 'Configurations' },
+}
+const ProjectTreeNestedBranch = ({ nestedBranchTarget, children, ...res }: IProjectTreeNestedBranchProps) => {
+  const {
+    project: {
+      data: { dataTypes },
+    },
+  } = useOpenPLCStore()
+
+  const [branchIsOpen, setBranchIsOpen] = useState<boolean>(false)
+  const { BranchIcon, label } = NestedBranchSources[nestedBranchTarget]
+  const handleBranchVisibility = useCallback(() => setBranchIsOpen(!branchIsOpen), [branchIsOpen])
+  const hasAssociatedDataType = dataTypes.some((dataType) => dataType?.derivation === nestedBranchTarget)
+  useEffect(() => setBranchIsOpen(hasAssociatedDataType), [hasAssociatedDataType])
+
+  return (
+    <li aria-expanded={branchIsOpen} className='cursor-pointer aria-expanded:cursor-default ' {...res}>
+      <div
+        className='ml-4 flex w-full cursor-pointer flex-row items-center py-1 pl-2 hover:bg-slate-50 dark:hover:bg-neutral-900'
+        onClick={hasAssociatedDataType ? handleBranchVisibility : undefined}
+      >
+        {hasAssociatedDataType ? (
+          <ArrowIcon
+            direction='right'
+            className={cn(
+              `mr-[6px] h-4 w-4 stroke-brand-light transition-all ${branchIsOpen && 'rotate-270 stroke-brand'}`,
+            )}
+          />
+        ) : (
+          <div className='w-[22px]' />
+        )}
+        <BranchIcon />
+        <span
+          className={cn(
+            'ml-1 truncate font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+            branchIsOpen && 'font-medium text-neutral-1000 dark:text-white',
+          )}
+        >
+          {label || ''}
+        </span>
+      </div>
+
+      {children && branchIsOpen && (
+        <div>
+          <ul>
+            {children && (
+              <div>
+                <ul className='list-none p-0'>{children}</ul>
+              </div>
+            )}
+          </ul>
+        </div>
+      )}
+    </li>
+  )
+}
+
+type IProjectTreeExpandableLeafProps = ComponentPropsWithoutRef<'li'> & {
+  leafLang: IProjectTreeLeafProps['leafLang']
+  leafType: WorkspaceProjectTreeLeafType
+  label?: string
+  /**
+   * Search query used only to highlight matches in the displayed label.
+   * Kept separate from `label`, which must stay the element's real name:
+   * rename/duplicate/delete and selection all use `label` as identity.
+   */
+  highlightQuery?: string
+  children?: ReactNode
+}
+
+const ProjectTreeExpandableLeaf = ({
+  leafLang,
+  leafType,
+  label,
+  highlightQuery,
+  children,
+  onClick: handleLeafClick,
+  ...res
+}: IProjectTreeExpandableLeafProps) => {
+  const {
+    editor: {
+      meta: { name },
+    },
+    workspace: { selectedProjectTreeLeaf, isDebuggerVisible },
+    workspaceActions: { setSelectedProjectTreeLeaf },
+    remoteDeviceActions: { deleteRequest: deleteRemoteDeviceRequest, rename: renameRemoteDevice },
+    fileActions: { getFile },
+  } = useOpenPLCStore()
+
+  const [isExpanded, setIsExpanded] = useState(true)
+  const [isEditing, setIsEditing] = useState(false)
+  const [newLabel, setNewLabel] = useState(label || '')
+  const [isPopoverOpen, setPopoverOpen] = useState(false)
+  const inputNameRef = useRef<HTMLInputElement>(null)
+
+  const { LeafIcon } = LeafSources[leafLang]
+  const { file: associatedFile } = getFile({ name: label || '' })
+  const handleLabel = useCallback((l: string | undefined) => unsavedLabel(l, associatedFile), [associatedFile])
+
+  const handleLeafSelection = () => {
+    if (!label) return
+    const { label: currentLabel } = selectedProjectTreeLeaf
+    if (label === currentLabel) return
+    setSelectedProjectTreeLeaf({ label, type: leafType })
+  }
+
+  const handleRenameFile = (renamed: string) => {
+    setIsEditing(false)
+    if (!renamed || !label) return
+    if (renamed === label) return
+    const res = renameRemoteDevice(label, renamed)
+    if (!res.ok) {
+      setNewLabel(label || '')
+      toast({ title: 'Rename failed', description: res.message ?? `"${label}" could not be renamed.`, variant: 'fail' })
+      return
+    }
+    // Soft, unsaved change: renameElement flags the workspace dirty; the rename
+    // persists on the next save, consistently on web and desktop.
+  }
+
+  const handleDeleteFile = () => {
+    if (label) deleteRemoteDeviceRequest(label)
+  }
+
+  useEffect(() => {
+    if (isEditing && inputNameRef.current) {
+      inputNameRef.current.focus()
+      inputNameRef.current.select()
+    }
+  }, [inputNameRef, isEditing])
+
+  const popoverOptions = useMemo(
+    () => [
+      {
+        name: 'Rename',
+        onClick: () => setIsEditing(true),
+        icon: <PencilIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+      },
+      {
+        name: 'Delete',
+        onClick: () => handleDeleteFile(),
+        icon: <CloseIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+      },
+    ],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [label],
+  )
+
+  return (
+    <li className='cursor-default' {...res}>
+      <div
+        className={cn(
+          'group flex cursor-pointer flex-row items-center py-1 pl-[36px] hover:bg-slate-50 dark:hover:bg-neutral-900',
+          name === label && 'bg-slate-50 dark:bg-neutral-900',
+        )}
+      >
+        <ArrowIcon
+          direction='right'
+          className={cn(
+            'mr-[6px] h-4 w-4 flex-shrink-0 cursor-pointer stroke-brand-light transition-all',
+            isExpanded && 'rotate-270 stroke-brand',
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            setIsExpanded(!isExpanded)
+          }}
+        />
+        <div
+          className='flex flex-1 items-center overflow-hidden'
+          onClick={(e) => {
+            handleLeafSelection()
+            if (label === name) return
+            if (handleLeafClick) handleLeafClick(e as unknown as React.MouseEvent<HTMLLIElement>)
+          }}
+        >
+          <LeafIcon className='flex-shrink-0' />
+          {isEditing ? (
+            <input
+              ref={inputNameRef}
+              value={newLabel}
+              onChange={(e) => setNewLabel(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleRenameFile(newLabel.trim() || '')
+                if (e.key === 'Escape') setIsEditing(false)
+              }}
+              onBlur={() => void handleRenameFile(newLabel || '')}
+              className='w-full border-0 bg-transparent px-1 text-xs text-neutral-850 focus:outline-none dark:text-neutral-300'
+            />
+          ) : (
+            <span
+              className={cn(
+                'ml-1 w-[90%] overflow-hidden text-ellipsis whitespace-nowrap font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+                name === label && 'font-medium text-neutral-1000 dark:text-white',
+                isUnsaved(associatedFile) && 'italic',
+              )}
+              onDoubleClick={() => !isDebuggerVisible && setIsEditing(true)}
+            >
+              <HighlightedText text={handleLabel(label) || ''} searchQuery={highlightQuery} />
+            </span>
+          )}
+        </div>
+
+        <Popover.Root open={isPopoverOpen && !isDebuggerVisible} onOpenChange={setPopoverOpen}>
+          <Popover.Trigger
+            disabled={isDebuggerVisible}
+            className={cn(
+              'mr-2 flex h-5 w-5 items-center justify-center rounded-md opacity-0 hover:bg-neutral-200 group-hover:opacity-100 dark:hover:bg-neutral-850',
+              {
+                'bg-neutral-200 opacity-100 dark:bg-neutral-850': isPopoverOpen,
+                'cursor-not-allowed': isDebuggerVisible,
+              },
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <MoreOptionsIcon className='h-4 w-4' />
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Content
+              align='start'
+              side='right'
+              sideOffset={2}
+              className={cn(
+                'box z-[100] flex h-fit w-fit min-w-32 flex-col rounded-lg text-xs',
+                'focus:outline-none focus-visible:outline-none',
+                'bg-white text-neutral-1000 dark:bg-neutral-950 dark:text-neutral-300',
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {popoverOptions.map((option, index) => (
+                <div
+                  key={option.name}
+                  className={cn(
+                    'flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900',
+                    { 'rounded-t-lg': index === 0, 'rounded-b-lg': index === popoverOptions.length - 1 },
+                  )}
+                  onClick={() => {
+                    option.onClick()
+                    setPopoverOpen(false)
+                  }}
+                >
+                  {option.icon}
+                  <p>{option.name}</p>
+                </div>
+              ))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      </div>
+
+      {children && isExpanded && <ul className='list-none p-0 pl-4'>{children}</ul>}
+    </li>
+  )
+}
+
+type IProjectTreeLeafProps = ComponentPropsWithoutRef<'li'> & {
+  leafLang:
+    | 'il'
+    | 'st'
+    | 'python'
+    | 'cpp'
+    | 'fbd'
+    | 'sfc'
+    | 'ld'
+    | 'arr'
+    | 'enum'
+    | 'str'
+    | 'gvl'
+    | 'res'
+    | 'devConfig'
+    | 'devPin'
+    | 'devOrchestrators'
+    | 'server'
+    | 'remoteDevice'
+    | 'vendorScreen'
+    | 'ethercatDevice'
+    | 'softMotionDrive'
+    | 'libraryManifest'
+    | 'userManagement'
+    | 'persistentStorage'
+  leafType: WorkspaceProjectTreeLeafType
+  label?: string
+  /**
+   * Search query used only to highlight matches in the displayed label.
+   * Kept separate from `label`, which must stay the element's real name:
+   * rename/duplicate/delete and selection all use `label` as identity.
+   */
+  highlightQuery?: string
+  busName?: string
+  deviceId?: string
+  /**
+   * Carried on an EtherCAT module leaf so Delete can remove that one module
+   * without touching the parent coupler or the other modules on it.
+   */
+  moduleId?: string
+}
+
+const LeafSources = {
+  il: { LeafIcon: ILIcon },
+  st: { LeafIcon: STIcon },
+  fbd: { LeafIcon: FBDIcon },
+  sfc: { LeafIcon: SFCIcon },
+  ld: { LeafIcon: LDIcon },
+  python: { LeafIcon: PythonIcon },
+  cpp: { LeafIcon: CppIcon },
+  arr: { LeafIcon: ArrayIcon },
+  enum: { LeafIcon: EnumIcon },
+  str: { LeafIcon: StructureIcon },
+  gvl: { LeafIcon: GlobalVariableListIcon },
+  res: { LeafIcon: ResourceIcon },
+  devConfig: { LeafIcon: ConfigIcon },
+  devPin: { LeafIcon: DeviceTransferIcon },
+  devOrchestrators: { LeafIcon: OrchestratorIcon },
+  server: { LeafIcon: ServerIcon },
+  remoteDevice: { LeafIcon: RemoteDeviceIcon },
+  vendorScreen: { LeafIcon: ConfigIcon },
+  ethercatDevice: { LeafIcon: DeviceTransferIcon },
+  // A recognized CiA 402 SoftMotion drive gets a distinct rotary-axis icon so
+  // it reads as an axis (usable in MC_* blocks), not a plain EtherCAT slave.
+  softMotionDrive: { LeafIcon: SoftMotionIcon },
+  // Library manifest gets its own document-with-bookmark icon so
+  // the explorer leaf, the workspace tab, and the breadcrumb all
+  // render the same glyph — the manifest is the user's entry point
+  // into a library project, so it earns a dedicated mark.
+  libraryManifest: { LeafIcon: LibraryManifestIcon },
+  userManagement: { LeafIcon: UsersIcon },
+  persistentStorage: { LeafIcon: ConfigIcon },
+}
+const ProjectTreeLeaf = ({
+  leafLang,
+  leafType,
+  label,
+  highlightQuery,
+  busName,
+  deviceId,
+  moduleId,
+  onClick: handleLeafClick,
+  ...res
+}: IProjectTreeLeafProps) => {
+  const store = useOpenPLCStoreApi()
+  const {
+    editor: {
+      meta: { name },
+    },
+    workspace: { selectedProjectTreeLeaf, isDebuggerVisible },
+    workspaceActions: { setSelectedProjectTreeLeaf },
+    pouActions: { deleteRequest: deletePouRequest, rename: renamePou, duplicate: duplicatePou },
+    datatypeActions: { deleteRequest: deleteDatatypeRequest, rename: renameDatatype, duplicate: duplicateDatatype },
+    globalVariableListActions: {
+      deleteRequest: deleteGlobalVariableListRequest,
+      rename: renameGlobalVariableList,
+      duplicate: duplicateGlobalVariableList,
+    },
+    serverActions: { deleteRequest: deleteServerRequest, rename: renameServer, duplicate: duplicateServer },
+    remoteDeviceActions: {
+      deleteRequest: deleteRemoteDeviceRequest,
+      rename: renameRemoteDevice,
+      duplicate: duplicateRemoteDevice,
+    },
+    ethercatDeviceActions: {
+      delete: deleteEthercatDevice,
+      deleteModule: deleteEthercatModule,
+      rename: renameEthercatDevice,
+    },
+    fileActions: { getFile },
+  } = useOpenPLCStore()
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [newLabel, setNewLabel] = useState(label || '')
+  const [isPopoverOpen, setPopoverOpen] = useState(false)
+
+  const inputNameRef = useRef<HTMLInputElement>(null)
+
+  const isAPou = useMemo(() => pousAllLanguages.includes(leafLang as (typeof pousAllLanguages)[number]), [leafLang])
+  const isDatatype = useMemo(() => leafLang === 'arr' || leafLang === 'enum' || leafLang === 'str', [leafLang])
+  const isGlobalVariableList = useMemo(() => leafLang === 'gvl', [leafLang])
+  const isServer = useMemo(() => leafLang === 'server', [leafLang])
+  const isRemoteDevice = useMemo(() => leafLang === 'remoteDevice', [leafLang])
+  // A SoftMotion drive is an EtherCAT child device too (cia402.enabled) — it
+  // shares every EtherCAT device action (rename/delete), just a distinct icon.
+  const isEthercatDevice = useMemo(() => leafLang === 'ethercatDevice' || leafLang === 'softMotionDrive', [leafLang])
+  // A module slotted into a modular coupler. Delete must remove only this
+  // module, not the parent coupler — the module leaf carries `moduleId` for
+  // exactly that reason.
+  const isEthercatModule = useMemo(() => leafType === 'ethercat-module', [leafType])
+
+  const { LeafIcon } = LeafSources[leafLang]
+  const { file: associatedFile } = getFile({ name: label || '' })
+
+  const handleLeafSelection = () => {
+    if (!label) {
+      toast({
+        title: 'Error',
+        description: 'Pou or datatype label is required to select.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    const { label: currentLabel } = selectedProjectTreeLeaf
+
+    if (label === currentLabel) return
+
+    setSelectedProjectTreeLeaf({ label, type: leafType })
+  }
+
+  const handleRenameFile = (newLabel: string) => {
+    setIsEditing(false)
+
+    // Keep this list in step with the dispatch below — a type handled there but
+    // missing here bails out at the guard, which makes its branch dead code and
+    // the tree's own Rename entry a no-op.
+    if (!isAPou && !isDatatype && !isGlobalVariableList && !isServer && !isRemoteDevice && !isEthercatDevice) {
+      toast({
+        title: 'Error',
+        description: 'Only POU, datatype, global variable list, server, or remote device files can be renamed.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    if (!newLabel || !label) {
+      toast({
+        title: 'Error',
+        description: 'Label is required to rename.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    // No-op: user blurred or hit Enter without changing anything.
+    if (newLabel === label) return
+
+    // Snapping the label back is not an explanation: element names share one
+    // namespace, so a refusal usually names a POU, data type or list the user
+    // cannot see from here. A cancelled data type rename is the user's own
+    // choice and reports nothing.
+    const reportFailedRename = (res: { message?: string; cancelled?: boolean }) => {
+      setNewLabel(label || '')
+      if (res.cancelled) return
+      toast({
+        title: 'Rename failed',
+        description: res.message ?? `"${label}" could not be renamed.`,
+        variant: 'fail',
+      })
+    }
+
+    // Renames are soft, unsaved changes: renameElement flags the workspace
+    // dirty and queues the old path in `pendingDeletions`. Nothing is written
+    // to disk until the user saves — identical on web and desktop.
+    if (isAPou) {
+      const res = renamePou(label, newLabel)
+      if (!res.ok) reportFailedRename(res)
+      return
+    }
+
+    if (isDatatype) {
+      // Async: a referenced type awaits the impact modal before renaming.
+      void renameDatatype(label, newLabel)
+        .then((res) => {
+          if (!res.ok) reportFailedRename(res)
+        })
+        .catch(() => reportFailedRename({}))
+      return
+    }
+
+    if (isGlobalVariableList) {
+      const res = renameGlobalVariableList(label, newLabel)
+      if (!res.ok) reportFailedRename(res)
+      return
+    }
+
+    if (isServer) {
+      const res = renameServer(label, newLabel)
+      if (!res.ok) reportFailedRename(res)
+      return
+    }
+
+    if (isRemoteDevice) {
+      const res = renameRemoteDevice(label, newLabel)
+      if (!res.ok) reportFailedRename(res)
+      return
+    }
+
+    if (isEthercatDevice && busName && deviceId) {
+      const res = renameEthercatDevice(busName, deviceId, newLabel)
+      if (!res.ok) {
+        reportFailedRename(res)
+      }
+      // Ethercat device lives inside its parent bus file — the parent will
+      // be re-serialized on the next regular save. Skipping auto-save here
+      // matches the existing behavior; if persistence becomes an issue,
+      // we'll add it.
+      return
+    }
+  }
+
+  const copyKind = (): NamedElementKind => {
+    if (isAPou) return 'pou'
+    if (isDatatype) return 'data-type'
+    if (isGlobalVariableList) return 'global-variable-list'
+    if (isServer) return 'server'
+    return 'remote-device'
+  }
+
+  /**
+   * `<label>_copy`, then `_copy_2`, `_copy_3`… — the first name the gate accepts
+   * for this kind, so the duplicate lands on the first try instead of failing on
+   * a name the menu could not know was taken.
+   */
+  const nextCopyName = (base: string): string => {
+    const state = store.getState()
+    const kind = copyKind()
+    const free = (candidate: string) => elementNameCollision(state, candidate, kind) === null
+    const first = `${base}_copy`
+    if (free(first)) return first
+    for (let n = 2; ; n++) {
+      const candidate = `${first}_${n}`
+      if (free(candidate)) return candidate
+    }
+  }
+
+  const handleDuplicateFile = () => {
+    if (!isAPou && !isDatatype && !isGlobalVariableList && !isServer && !isRemoteDevice) {
+      toast({
+        title: 'Error',
+        description: 'Only POU, datatype, global variable list, server, or remote device files can be duplicated.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    if (!label) {
+      toast({
+        title: 'Error',
+        description: 'Label is required to duplicate.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    // Duplicating is a soft, unsaved change: the shared duplicate actions flag
+    // the new element dirty; it persists on the next save, like create.
+    //
+    // Every branch reports its failure. Discarding the result is how a duplicate
+    // that could not be made looks identical to one that was.
+    const copyName = nextCopyName(label)
+    const duplicated = ((): { ok: boolean; message?: string } => {
+      if (isAPou) return duplicatePou(label, copyName)
+      if (isDatatype) return duplicateDatatype(label, copyName)
+      if (isGlobalVariableList) return duplicateGlobalVariableList(label, copyName)
+      if (isServer) return duplicateServer(label, copyName)
+      return duplicateRemoteDevice(label, copyName)
+    })()
+
+    if (!duplicated.ok) {
+      toast({
+        title: 'Duplicate failed',
+        description: duplicated.message ?? `"${label}" could not be duplicated.`,
+        variant: 'fail',
+      })
+    }
+  }
+
+  const handleDeleteFile = () => {
+    if (
+      !isAPou &&
+      !isDatatype &&
+      !isGlobalVariableList &&
+      !isServer &&
+      !isRemoteDevice &&
+      !isEthercatDevice &&
+      !isEthercatModule
+    ) {
+      toast({
+        title: 'Error',
+        description: 'Only POU, datatype, global variable list, server, or remote device files can be deleted.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    if (!label) {
+      toast({
+        title: 'Error',
+        description: 'Label is required to delete.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    if (isAPou) {
+      deletePouRequest(label)
+      return
+    }
+
+    if (isDatatype) {
+      deleteDatatypeRequest(label)
+      return
+    }
+
+    if (isGlobalVariableList) {
+      deleteGlobalVariableListRequest(label)
+      return
+    }
+
+    if (isServer) {
+      deleteServerRequest(label)
+      return
+    }
+
+    if (isRemoteDevice) {
+      deleteRemoteDeviceRequest(label)
+      return
+    }
+
+    if (isEthercatModule && busName && deviceId && moduleId) {
+      // Must route to deleteModule, NOT deleteEthercatDevice — the latter
+      // would take the whole coupler and every other module slotted into it.
+      deleteEthercatModule(busName, deviceId, moduleId)
+      return
+    }
+
+    if (isEthercatDevice && busName && deviceId) {
+      deleteEthercatDevice(busName, deviceId)
+      return
+    }
+  }
+
+  const handleLabel = useCallback((label: string | undefined) => unsavedLabel(label, associatedFile), [associatedFile])
+  const popoverOptions = useMemo(() => {
+    return [
+      {
+        name: 'Rename',
+        onClick: () => {
+          setIsEditing(true)
+        },
+        icon: <PencilIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+      },
+      {
+        name: 'Duplicate',
+        onClick: () => {
+          void handleDuplicateFile()
+        },
+        icon: <DuplicateIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+      },
+      {
+        name: 'Delete',
+        onClick: () => {
+          handleDeleteFile()
+        },
+        icon: <CloseIcon className='h-4 w-4 stroke-brand dark:stroke-brand-light' />,
+      },
+    ]
+  }, [handleDeleteFile, handleDuplicateFile, setIsEditing])
+
+  useEffect(() => {
+    if (isEditing && inputNameRef.current) {
+      inputNameRef.current.focus()
+      inputNameRef.current.select()
+    }
+  }, [inputNameRef, isEditing])
+
+  return (
+    <li
+      className={cn(
+        'group flex cursor-pointer flex-row items-center py-1 pl-[58px] hover:bg-slate-50 dark:hover:bg-neutral-900',
+        name === label && 'bg-slate-50 dark:bg-neutral-900',
+      )}
+      onClick={(e) => {
+        handleLeafSelection()
+        if (label === name) return
+        if (handleLeafClick) handleLeafClick(e)
+      }}
+      {...res}
+    >
+      <LeafIcon className='flex-shrink-0' />
+
+      {isEditing ? (
+        <input
+          ref={inputNameRef}
+          value={newLabel}
+          onChange={(e) => setNewLabel(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void handleRenameFile(newLabel.trim() || '')
+            if (e.key === 'Escape') setIsEditing(false)
+          }}
+          onBlur={(_e) => void handleRenameFile(newLabel || '')}
+          className='w-full border-0 bg-transparent px-1 text-xs text-neutral-850 focus:outline-none dark:text-neutral-300'
+        />
+      ) : (
+        <span
+          className={cn(
+            'ml-1 w-[90%] overflow-hidden text-ellipsis whitespace-nowrap font-caption text-xs font-normal text-neutral-850 dark:text-neutral-300',
+            name === label && 'font-medium text-neutral-1000 dark:text-white',
+            isUnsaved(associatedFile) && 'italic',
+          )}
+          onDoubleClick={() => !isDebuggerVisible && setIsEditing(true)}
+        >
+          <HighlightedText text={handleLabel(label) || ''} searchQuery={highlightQuery} />
+        </span>
+      )}
+
+      {leafLang === 'devPin' ||
+      leafLang === 'devConfig' ||
+      leafLang === 'userManagement' ||
+      leafLang === 'persistentStorage' ? null : (
+        <Popover.Root open={isPopoverOpen && !isDebuggerVisible} onOpenChange={setPopoverOpen}>
+          <Popover.Trigger
+            disabled={isDebuggerVisible}
+            className={cn(
+              'mr-2 flex h-5 w-5 items-center justify-center rounded-md opacity-0 hover:bg-neutral-200 group-hover:opacity-100 dark:hover:bg-neutral-850',
+              {
+                'bg-neutral-200 opacity-100 dark:bg-neutral-850': isPopoverOpen,
+                'cursor-not-allowed': isDebuggerVisible,
+              },
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+            }}
+          >
+            <MoreOptionsIcon className='h-4 w-4' />
+          </Popover.Trigger>
+
+          <Popover.Portal>
+            <Popover.Content
+              align='start'
+              side='right'
+              sideOffset={2}
+              className={cn(
+                'box z-[100] flex h-fit w-fit min-w-32 flex-col rounded-lg text-xs',
+                'focus:outline-none focus-visible:outline-none',
+                'bg-white text-neutral-1000 dark:bg-neutral-950 dark:text-neutral-300',
+              )}
+              onClick={(e) => e.stopPropagation()}
+            >
+              {popoverOptions.map((option, index) => (
+                <div
+                  key={option.name}
+                  className={cn(
+                    'flex w-full cursor-pointer items-center gap-2 px-2 py-1 hover:bg-neutral-100 dark:hover:bg-neutral-900',
+                    {
+                      'rounded-t-lg': index === 0,
+                      'rounded-b-lg': index === popoverOptions.length - 1,
+                    },
+                  )}
+                  onClick={() => {
+                    option.onClick()
+                    setPopoverOpen(false)
+                  }}
+                >
+                  {option.icon}
+                  <p>{option.name}</p>
+                </div>
+              ))}
+            </Popover.Content>
+          </Popover.Portal>
+        </Popover.Root>
+      )}
+    </li>
+  )
+}
+
+export { ProjectTreeBranch, ProjectTreeExpandableLeaf, ProjectTreeLeaf, ProjectTreeNestedBranch, ProjectTreeRoot }

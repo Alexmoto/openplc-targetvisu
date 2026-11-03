@@ -1,0 +1,617 @@
+import type { OpcUaFieldConfig, OpcUaNodeConfig, OpcUaPermissions } from '@root/middleware/shared/ports/open-plc-types'
+
+import type { DebugLeafInfo } from '../../debug-parser'
+import {
+  OpcUaConfigError,
+  resolveArrayAddress,
+  resolveArrayElementFields,
+  resolveStructureAddresses,
+  resolveVariableAddress,
+} from '../resolve-indices'
+import type { PLCInstanceInfo } from '../types'
+
+const perm: OpcUaPermissions = { viewer: 'r', operator: 'rw', engineer: 'rw' }
+
+const makeNode = (overrides: Partial<OpcUaNodeConfig> = {}): OpcUaNodeConfig => ({
+  id: 'n1',
+  pouName: 'MAIN',
+  variablePath: 'MY_VAR',
+  variableType: 'INT',
+  nodeId: 'ns=1;s=MY_VAR',
+  browseName: 'MY_VAR',
+  displayName: 'My Variable',
+  description: '',
+  permissions: perm,
+  nodeType: 'variable',
+  ...overrides,
+})
+
+const makeField = (overrides: Partial<OpcUaFieldConfig> = {}): OpcUaFieldConfig => ({
+  fieldPath: 'FIELD1',
+  displayName: 'Field 1',
+  permissions: perm,
+  ...overrides,
+})
+
+// Build the uppercase-path → DebugLeafInfo Map the resolver consumes.
+// Same shape buildLeafInfoMap produces from a real debug-map.json, so
+// tests exercise the production lookup path verbatim. type/size default
+// to INT/2; pass them explicitly to exercise canonical-type emission or
+// the empty-type fallback.
+const pmap = (
+  ...entries: Array<[path: string, arr: number, elem: number, type?: string, size?: number]>
+): Map<string, DebugLeafInfo> => {
+  const out = new Map<string, DebugLeafInfo>()
+  for (const [path, arr, elem, type = 'INT', size = 2] of entries) {
+    out.set(path.toUpperCase(), { arr, elem, type, size })
+  }
+  return out
+}
+
+const inst = (name: string, program: string): PLCInstanceInfo => ({ name, task: 'T0', program })
+
+describe('OpcUaConfigError', () => {
+  it('stores variableRef, expectedPath and is instanceof Error', () => {
+    const e = new OpcUaConfigError('ref', 'path', 'msg')
+    expect(e.name).toBe('OpcUaConfigError')
+    expect(e.variableRef).toBe('ref')
+    expect(e.expectedPath).toBe('path')
+    expect(e.message).toBe('msg')
+    expect(e).toBeInstanceOf(Error)
+  })
+})
+
+describe('resolveVariableAddress', () => {
+  it('resolves a global variable (GVL)', () => {
+    const node = makeNode({ pouName: 'GVL', variablePath: 'SPEED' })
+    expect(resolveVariableAddress(node, pmap(['SPEED', 0, 5]), [])).toMatchObject({ arr: 0, elem: 5 })
+  })
+
+  it('returns the canonical type and size from the debug map (not the stored type)', () => {
+    // node.variableType is INT, but the compiler says LREAL/8 — the
+    // canonical map wins so the runtime encodes the right width.
+    const node = makeNode({ pouName: 'GVL', variablePath: 'TEMP', variableType: 'INT' })
+    expect(resolveVariableAddress(node, pmap(['TEMP', 2, 9, 'LREAL', 8]), [])).toEqual({
+      arr: 2,
+      elem: 9,
+      type: 'LREAL',
+      size: 8,
+    })
+  })
+
+  it('resolves a global variable (CONFIG)', () => {
+    const node = makeNode({ pouName: 'CONFIG', variablePath: 'TEMP' })
+    expect(resolveVariableAddress(node, pmap(['TEMP', 1, 12]), [])).toMatchObject({ arr: 1, elem: 12 })
+  })
+
+  it('uppercases the variable path for lookup (debug map is upper end-to-end)', () => {
+    // The GVL sentinel is emitted uppercase by the picker; the variable NAME is
+    // matched case-insensitively because buildGlobalDebugPath uppercases it.
+    const node = makeNode({ pouName: 'GVL', variablePath: 'b' })
+    expect(resolveVariableAddress(node, pmap(['B', 0, 7]), [])).toMatchObject({ arr: 0, elem: 7 })
+  })
+
+  it('throws when global variable not found', () => {
+    const node = makeNode({ pouName: 'GVL', variablePath: 'MISSING' })
+    expect(() => resolveVariableAddress(node, pmap(), [])).toThrow(OpcUaConfigError)
+  })
+
+  it('resolves an instance variable', () => {
+    const node = makeNode({ pouName: 'MAIN', variablePath: 'MOTOR_SPEED' })
+    expect(
+      resolveVariableAddress(node, pmap(['INSTANCE0.MOTOR_SPEED', 0, 11]), [inst('INSTANCE0', 'MAIN')]),
+    ).toMatchObject({
+      arr: 0,
+      elem: 11,
+    })
+  })
+
+  it('resolves a nested-path instance variable (struct/FB field)', () => {
+    const node = makeNode({ pouName: 'MAIN', variablePath: 'SENSOR.VALUE' })
+    expect(
+      resolveVariableAddress(node, pmap(['INSTANCE0.SENSOR.VALUE', 0, 25]), [inst('INSTANCE0', 'MAIN')]),
+    ).toMatchObject({
+      arr: 0,
+      elem: 25,
+    })
+  })
+
+  it('preserves array brackets in path segments', () => {
+    const node = makeNode({ pouName: 'MAIN', variablePath: 'PROFILES[3]' })
+    expect(
+      resolveVariableAddress(node, pmap(['INSTANCE0.PROFILES[3]', 0, 30]), [inst('INSTANCE0', 'MAIN')]),
+    ).toMatchObject({
+      arr: 0,
+      elem: 30,
+    })
+  })
+
+  it('throws when instance not found in resources', () => {
+    const node = makeNode({ pouName: 'UNKNOWN' })
+    expect(() => resolveVariableAddress(node, pmap(), [])).toThrow('Cannot find instance for program')
+  })
+
+  it('throws when instance variable path does not match a leaf', () => {
+    const node = makeNode({ pouName: 'MAIN', variablePath: 'GHOST' })
+    expect(() => resolveVariableAddress(node, pmap(), [inst('INSTANCE0', 'MAIN')])).toThrow(
+      'Cannot resolve OPC-UA variable address',
+    )
+  })
+})
+
+describe('resolveStructureAddresses', () => {
+  it('falls back to single-variable resolve when no fields are configured', () => {
+    const node = makeNode({ nodeType: 'structure', variablePath: 'STRUCT' })
+    const result = resolveStructureAddresses(node, pmap(['INSTANCE0.STRUCT', 0, 9]), [inst('INSTANCE0', 'MAIN')])
+    expect(result).toHaveLength(1)
+    expect(result[0]).toMatchObject({ name: 'STRUCT', datatype: 'INT', arr: 0, elem: 9, permissions: perm })
+  })
+
+  it('throws when instance not found and fields are present', () => {
+    const node = makeNode({ nodeType: 'structure', pouName: 'UNK', variablePath: 'S', fields: [makeField()] })
+    expect(() => resolveStructureAddresses(node, pmap(), [])).toThrow('Cannot find instance for program')
+  })
+
+  it('resolves leaf fields for a structure', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [makeField({ fieldPath: 'X', datatype: 'INT' }), makeField({ fieldPath: 'Y', datatype: 'REAL' })],
+    })
+    const result = resolveStructureAddresses(
+      node,
+      pmap(['INSTANCE0.S.X', 0, 3, 'INT', 2], ['INSTANCE0.S.Y', 0, 4, 'REAL', 4]),
+      [inst('INSTANCE0', 'MAIN')],
+    )
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({ name: 'X', arr: 0, elem: 3, datatype: 'INT' })
+    expect(result[1]).toMatchObject({ name: 'Y', arr: 0, elem: 4, datatype: 'REAL' })
+  })
+
+  it('emits canonical type and size on leaf fields (debug map wins over stored datatype)', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [makeField({ fieldPath: 'X', datatype: 'INT' })],
+    })
+    const result = resolveStructureAddresses(node, pmap(['INSTANCE0.S.X', 0, 3, 'REAL', 4]), [
+      inst('INSTANCE0', 'MAIN'),
+    ])
+    expect(result[0]).toMatchObject({ name: 'X', datatype: 'REAL', size: 4, arr: 0, elem: 3 })
+  })
+
+  it('resolves nested fields recursively (FB inside FB)', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'MY_FB',
+      fields: [
+        makeField({
+          fieldPath: 'TON0',
+          datatype: 'TON',
+          fields: [makeField({ fieldPath: 'IN', datatype: 'BOOL' }), makeField({ fieldPath: 'ET', datatype: 'TIME' })],
+        }),
+      ],
+    })
+    const result = resolveStructureAddresses(
+      node,
+      pmap(['INSTANCE0.MY_FB.TON0.IN', 0, 10, 'BOOL', 1], ['INSTANCE0.MY_FB.TON0.ET', 0, 11, 'TIME', 8]),
+      [inst('INSTANCE0', 'MAIN')],
+    )
+    expect(result).toHaveLength(1)
+    expect(result[0].arr).toBeNull()
+    expect(result[0].elem).toBeNull()
+    expect(result[0].fields).toHaveLength(2)
+    expect(result[0].fields![0]).toMatchObject({ name: 'IN', arr: 0, elem: 10, datatype: 'BOOL' })
+    expect(result[0].fields![1]).toMatchObject({ name: 'ET', arr: 0, elem: 11, datatype: 'TIME' })
+  })
+
+  it('drops fields that cannot be resolved and reports them via droppedPaths', () => {
+    // Mirrors how the build silently drops library-FB internals
+    // (TON.STATE etc.) saved before the pou-helpers filter.
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [makeField({ fieldPath: 'GHOST', datatype: 'INT' }), makeField({ fieldPath: 'OK', datatype: 'INT' })],
+    })
+    const dropped: string[] = []
+    const result = resolveStructureAddresses(node, pmap(['INSTANCE0.S.OK', 0, 5]), [inst('INSTANCE0', 'MAIN')], dropped)
+    expect(result).toHaveLength(1)
+    expect(result[0].name).toBe('OK')
+    expect(dropped).toEqual(['MAIN:S.GHOST'])
+  })
+
+  it('drops a complex field whose every leaf is unresolvable', () => {
+    // TON.STATE / PREV_IN / etc. case — parent FB has no resolvable
+    // children left, so it gets dropped too rather than emitting an
+    // empty struct.
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [
+        makeField({
+          fieldPath: 'TON0',
+          datatype: 'TON',
+          fields: [
+            makeField({ fieldPath: 'STATE', datatype: 'SINT' }),
+            makeField({ fieldPath: 'PREV_IN', datatype: 'BOOL' }),
+          ],
+        }),
+      ],
+    })
+    const dropped: string[] = []
+    const result = resolveStructureAddresses(node, pmap(), [inst('INSTANCE0', 'MAIN')], dropped)
+    expect(result).toEqual([])
+    expect(dropped).toEqual(['MAIN:S.TON0.STATE', 'MAIN:S.TON0.PREV_IN'])
+  })
+
+  it('uses field datatype when debug entry has empty type string', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [makeField({ fieldPath: 'B', datatype: 'REAL' })],
+    })
+    const result = resolveStructureAddresses(node, pmap(['INSTANCE0.S.B', 0, 60, '']), [inst('INSTANCE0', 'MAIN')])
+    expect(result[0].datatype).toBe('REAL')
+  })
+
+  it('defaults datatype to UNKNOWN when no field datatype and no debug type', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      variablePath: 'S',
+      fields: [makeField({ fieldPath: 'C' })],
+    })
+    const result = resolveStructureAddresses(node, pmap(['INSTANCE0.S.C', 0, 61, '']), [inst('INSTANCE0', 'MAIN')])
+    expect(result[0].datatype).toBe('UNKNOWN')
+  })
+
+  it('resolves global structure fields via plain path', () => {
+    const node = makeNode({
+      nodeType: 'structure',
+      pouName: 'GVL',
+      variablePath: 'GLOBAL_STRUCT',
+      fields: [makeField({ fieldPath: 'F', datatype: 'INT' })],
+    })
+    const result = resolveStructureAddresses(node, pmap(['GLOBAL_STRUCT.F', 0, 80]), [])
+    expect(result[0]).toMatchObject({ name: 'F', arr: 0, elem: 80 })
+  })
+})
+
+describe('resolveArrayAddress', () => {
+  it('resolves the first element of an instance array', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'PROFILE', arrayLength: 5 })
+    expect(
+      resolveArrayAddress(node, pmap(['INSTANCE0.PROFILE[0]', 0, 100]), [inst('INSTANCE0', 'MAIN')]),
+    ).toMatchObject({
+      arr: 0,
+      elem: 100,
+    })
+  })
+
+  it('returns the canonical element type and size from the debug map', () => {
+    const node = makeNode({ nodeType: 'array', pouName: 'GVL', variablePath: 'TBL', arrayLength: 3 })
+    expect(resolveArrayAddress(node, pmap(['TBL[0]', 0, 5, 'DINT', 4]), [])).toEqual({
+      arr: 0,
+      elem: 5,
+      type: 'DINT',
+      size: 4,
+    })
+  })
+
+  it('resolves the first element of a global array', () => {
+    const node = makeNode({ nodeType: 'array', pouName: 'GVL', variablePath: 'TABLE', arrayLength: 4 })
+    expect(resolveArrayAddress(node, pmap(['TABLE[0]', 1, 7]), [])).toMatchObject({ arr: 1, elem: 7 })
+  })
+
+  it('throws when instance not found', () => {
+    const node = makeNode({ nodeType: 'array', pouName: 'NOPE', variablePath: 'A' })
+    expect(() => resolveArrayAddress(node, pmap(), [])).toThrow('Cannot find instance for program')
+  })
+
+  it('throws when array first element not in debug map', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'GHOST_ARR' })
+    expect(() => resolveArrayAddress(node, pmap(), [inst('INSTANCE0', 'MAIN')])).toThrow(
+      'Cannot resolve OPC-UA array address',
+    )
+  })
+
+  // IEC arrays use arbitrary lower bounds (`ARRAY[1..N]`, `ARRAY[-5..5]`).
+  // STruC++ emits debug-map paths using the IEC index, not zero-based —
+  // so the resolver finds the lowest-indexed element among the leaves
+  // sharing the array's prefix, not a hardcoded `[0]`.
+  it('resolves an array starting at IEC index 1 (ARRAY[1..N])', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'MY_ARRAY', arrayLength: 50 })
+    const leaves = pmap(
+      ['INSTANCE0.MY_ARRAY[1]', 0, 30],
+      ['INSTANCE0.MY_ARRAY[2]', 0, 31],
+      ['INSTANCE0.MY_ARRAY[3]', 0, 32],
+    )
+    expect(resolveArrayAddress(node, leaves, [inst('INSTANCE0', 'MAIN')])).toMatchObject({ arr: 0, elem: 30 })
+  })
+
+  it('resolves an array with negative lower bound (ARRAY[-2..2])', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'SIGNED_ARR', arrayLength: 5 })
+    // Note the order is intentionally not sorted — resolver must pick min.
+    const leaves = pmap(
+      ['INSTANCE0.SIGNED_ARR[1]', 0, 13],
+      ['INSTANCE0.SIGNED_ARR[-2]', 0, 10],
+      ['INSTANCE0.SIGNED_ARR[2]', 0, 14],
+      ['INSTANCE0.SIGNED_ARR[-1]', 0, 11],
+      ['INSTANCE0.SIGNED_ARR[0]', 0, 12],
+    )
+    expect(resolveArrayAddress(node, leaves, [inst('INSTANCE0', 'MAIN')])).toMatchObject({ arr: 0, elem: 10 })
+  })
+
+  it('does not match sub-elements of an array of structs as the array base', () => {
+    // For an ARRAY[1..3] OF SOME_STRUCT, leaves look like
+    // FOO[1].FIELD — those are NOT the array's own leaf base.
+    const node = makeNode({ nodeType: 'array', variablePath: 'STRUCT_ARR', arrayLength: 3 })
+    const leaves = pmap(['INSTANCE0.STRUCT_ARR[1].A', 0, 50], ['INSTANCE0.STRUCT_ARR[1].B', 0, 51])
+    expect(() => resolveArrayAddress(node, leaves, [inst('INSTANCE0', 'MAIN')])).toThrow(
+      'Cannot resolve OPC-UA array address',
+    )
+  })
+})
+
+// An ARRAY OF <user-defined type> has no leaf of its own, so it can only
+// be published as a structure whose fields are the elements. The picker
+// pre-expands those elements only for small 1-D arrays, so the resolver
+// has to be able to rebuild them from the debug map alone.
+describe('resolveArrayElementFields', () => {
+  it('returns [] for a plain array of base types (no sub-element leaves)', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'PROFILE', arrayLength: 2 })
+    const leaves = pmap(['INSTANCE0.PROFILE[0]', 0, 10], ['INSTANCE0.PROFILE[1]', 0, 11])
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')])).toEqual([])
+  })
+
+  it('returns [] when the array has no leaves at all', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'GHOST', arrayLength: 2 })
+    expect(resolveArrayElementFields(node, pmap(), [inst('INSTANCE0', 'MAIN')])).toEqual([])
+  })
+
+  it('builds one container field per element with canonical leaf type/size/address', () => {
+    const node = makeNode({
+      nodeType: 'array',
+      variablePath: 'TANKS',
+      variableType: 'ARRAY[1..2] OF TANK',
+      elementType: 'TANK',
+      arrayLength: 2,
+    })
+    const leaves = pmap(
+      ['INSTANCE0.TANKS[1].LEVEL', 0, 20, 'INT', 2],
+      ['INSTANCE0.TANKS[1].FLOW', 0, 21, 'DINT', 4],
+      ['INSTANCE0.TANKS[2].LEVEL', 0, 22, 'INT', 2],
+      ['INSTANCE0.TANKS[2].FLOW', 0, 23, 'DINT', 4],
+    )
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')])).toEqual([
+      {
+        name: '[1]',
+        datatype: 'TANK',
+        size: null,
+        arr: null,
+        elem: null,
+        permissions: perm,
+        fields: [
+          { name: 'LEVEL', datatype: 'INT', size: 2, arr: 0, elem: 20, permissions: perm },
+          { name: 'FLOW', datatype: 'DINT', size: 4, arr: 0, elem: 21, permissions: perm },
+        ],
+      },
+      {
+        name: '[2]',
+        datatype: 'TANK',
+        size: null,
+        arr: null,
+        elem: null,
+        permissions: perm,
+        fields: [
+          { name: 'LEVEL', datatype: 'INT', size: 2, arr: 0, elem: 22, permissions: perm },
+          { name: 'FLOW', datatype: 'DINT', size: 4, arr: 0, elem: 23, permissions: perm },
+        ],
+      },
+    ])
+  })
+
+  it('falls back to UNKNOWN for the element container when elementType is unset', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'A', arrayLength: 1 })
+    const fields = resolveArrayElementFields(node, pmap(['INSTANCE0.A[1].X', 0, 1]), [inst('INSTANCE0', 'MAIN')])
+    expect(fields[0]).toMatchObject({ name: '[1]', datatype: 'UNKNOWN' })
+  })
+
+  it('falls back to UNKNOWN when a leaf carries an empty type', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'A', arrayLength: 1 })
+    const fields = resolveArrayElementFields(node, pmap(['INSTANCE0.A[1].X', 0, 1, '']), [inst('INSTANCE0', 'MAIN')])
+    expect(fields[0].fields?.[0]).toMatchObject({ name: 'X', datatype: 'UNKNOWN' })
+  })
+
+  it('orders elements by IEC index, including negative lower bounds', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'SIGNED', arrayLength: 3 })
+    // Intentionally unsorted in the map — output must be [-1], [0], [1].
+    const leaves = pmap(
+      ['INSTANCE0.SIGNED[1].V', 0, 3],
+      ['INSTANCE0.SIGNED[-1].V', 0, 1],
+      ['INSTANCE0.SIGNED[0].V', 0, 2],
+    )
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')]).map((f) => f.name)).toEqual([
+      '[-1]',
+      '[0]',
+      '[1]',
+    ])
+  })
+
+  it('orders multi-dimensional elements dimension by dimension', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'GRID', arrayLength: 4 })
+    const leaves = pmap(
+      ['INSTANCE0.GRID[2][1].V', 0, 4],
+      ['INSTANCE0.GRID[1][2].V', 0, 2],
+      ['INSTANCE0.GRID[1][1].V', 0, 1],
+    )
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')]).map((f) => f.name)).toEqual([
+      '[1][1]',
+      '[1][2]',
+      '[2][1]',
+    ])
+  })
+
+  it('nests deeper members (struct inside the element) as container fields', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'CELLS', elementType: 'CELL', arrayLength: 1 })
+    const leaves = pmap(
+      ['INSTANCE0.CELLS[1].ID', 0, 5, 'INT', 2],
+      ['INSTANCE0.CELLS[1].LIMITS.MIN', 0, 6, 'INT', 2],
+      ['INSTANCE0.CELLS[1].LIMITS.MAX', 0, 7, 'INT', 2],
+    )
+    const fields = resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')])
+    expect(fields[0].fields).toEqual([
+      { name: 'ID', datatype: 'INT', size: 2, arr: 0, elem: 5, permissions: perm },
+      {
+        name: 'LIMITS',
+        datatype: 'UNKNOWN',
+        size: null,
+        arr: null,
+        elem: null,
+        permissions: perm,
+        fields: [
+          { name: 'MIN', datatype: 'INT', size: 2, arr: 0, elem: 6, permissions: perm },
+          { name: 'MAX', datatype: 'INT', size: 2, arr: 0, elem: 7, permissions: perm },
+        ],
+      },
+    ])
+  })
+
+  it('keeps an inner array of base types as one leaf per element', () => {
+    const node = makeNode({ nodeType: 'array', variablePath: 'ROWS', arrayLength: 1 })
+    const leaves = pmap(['INSTANCE0.ROWS[1].SAMPLES[0]', 0, 8], ['INSTANCE0.ROWS[1].SAMPLES[1]', 0, 9])
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')])[0].fields).toEqual([
+      { name: 'SAMPLES[0]', datatype: 'INT', size: 2, arr: 0, elem: 8, permissions: perm },
+      { name: 'SAMPLES[1]', datatype: 'INT', size: 2, arr: 0, elem: 9, permissions: perm },
+    ])
+  })
+
+  it('resolves a global (GVL) array of structs via the bare path', () => {
+    const node = makeNode({ nodeType: 'array', pouName: 'GVL', variablePath: 'RECIPES', arrayLength: 1 })
+    const fields = resolveArrayElementFields(node, pmap(['RECIPES[1].STEP', 0, 40]), [])
+    expect(fields[0]).toMatchObject({ name: '[1]' })
+    expect(fields[0].fields?.[0]).toMatchObject({ name: 'STEP', arr: 0, elem: 40 })
+  })
+
+  it('prefers a member own leaf over its deeper leaves', () => {
+    // Defensive: a debug map that carries both `A[1].M` and `A[1].M.X`
+    // must not produce a field that is a leaf and a container at once.
+    const node = makeNode({ nodeType: 'array', variablePath: 'A', arrayLength: 1 })
+    const leaves = pmap(['INSTANCE0.A[1].M.X', 0, 2], ['INSTANCE0.A[1].M', 0, 1])
+    expect(resolveArrayElementFields(node, leaves, [inst('INSTANCE0', 'MAIN')])[0].fields).toEqual([
+      { name: 'M', datatype: 'INT', size: 2, arr: 0, elem: 1, permissions: perm },
+    ])
+  })
+
+  it('throws when the program has no instance in Resources', () => {
+    const node = makeNode({ nodeType: 'array', pouName: 'NOPE', variablePath: 'A' })
+    expect(() => resolveArrayElementFields(node, pmap(['INSTANCE0.A[1].X', 0, 1]), [])).toThrow(
+      'Cannot find instance for program',
+    )
+  })
+})
+
+// A VAR_EXTERNAL is a reference to a CONFIGURATION VAR_GLOBAL, so STruC++ emits
+// it under its bare name and never under the referencing instance. The picker
+// now stamps `GVL` on those, but address spaces saved before that carry the
+// declaring program's name and must still resolve.
+describe('VAR_EXTERNAL / global scope', () => {
+  const instances = [inst('INSTANCE0', 'MAIN')]
+
+  it('resolves a global picked under the GVL group', () => {
+    const addr = resolveVariableAddress(
+      makeNode({ pouName: 'GVL', variablePath: 'TEST_GLOBAL' }),
+      pmap(['TEST_GLOBAL', 0, 7, 'DINT', 4]),
+      instances,
+    )
+    expect(addr).toEqual({ arr: 0, elem: 7, type: 'DINT', size: 4 })
+  })
+
+  it('resolves the CONFIG sentinel (exact) as the global scope', () => {
+    const addr = resolveVariableAddress(
+      makeNode({ pouName: 'CONFIG', variablePath: 'TEST_GLOBAL' }),
+      pmap(['TEST_GLOBAL', 0, 7, 'DINT', 4]),
+      instances,
+    )
+    expect(addr).toEqual({ arr: 0, elem: 7, type: 'DINT', size: 4 })
+  })
+
+  it('does NOT treat a user program named "Config" as the global scope', () => {
+    // A real POU keeps its instance-prefixed address. `Config` is not the
+    // reserved CONFIG sentinel, and case-folding it used to misroute it.
+    const addr = resolveVariableAddress(
+      makeNode({ pouName: 'Config', variablePath: 'X' }),
+      pmap(['INSTANCE0.X', 3, 9, 'INT', 2]),
+      [inst('INSTANCE0', 'Config')],
+    )
+    expect(addr).toEqual({ arr: 3, elem: 9, type: 'INT', size: 2 })
+  })
+
+  it('falls back to the global path for a config saved with the program as pouName', () => {
+    // INSTANCE0.TEST_GLOBAL is deliberately absent — that is what a
+    // VAR_EXTERNAL looks like in a debug map, and what used to abort the build.
+    const addr = resolveVariableAddress(
+      makeNode({ pouName: 'MAIN', variablePath: 'TEST_GLOBAL' }),
+      pmap(['TEST_GLOBAL', 0, 7, 'DINT', 4]),
+      instances,
+    )
+    expect(addr).toEqual({ arr: 0, elem: 7, type: 'DINT', size: 4 })
+  })
+
+  it('warns on every global-fallback hit so a mis-bind is never silent', () => {
+    const warnings: string[] = []
+    resolveVariableAddress(
+      makeNode({ pouName: 'MAIN', variablePath: 'TEST_GLOBAL' }),
+      pmap(['TEST_GLOBAL', 0, 7, 'DINT', 4]),
+      instances,
+      warnings,
+    )
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('MAIN:TEST_GLOBAL')
+    expect(warnings[0]).toContain('global')
+  })
+
+  it('does not warn when the program-scoped leaf resolves directly', () => {
+    const warnings: string[] = []
+    resolveVariableAddress(
+      makeNode({ pouName: 'MAIN', variablePath: 'OWNED' }),
+      pmap(['INSTANCE0.OWNED', 1, 2]),
+      instances,
+      warnings,
+    )
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('prefers the program-scoped address when the POU owns a variable of that name', () => {
+    const addr = resolveVariableAddress(
+      makeNode({ pouName: 'MAIN', variablePath: 'SHADOWED' }),
+      pmap(['INSTANCE0.SHADOWED', 1, 2, 'INT', 2], ['SHADOWED', 9, 9, 'DINT', 4]),
+      instances,
+    )
+    expect(addr).toEqual({ arr: 1, elem: 2, type: 'INT', size: 2 })
+  })
+
+  it('still throws when the name is in neither scope', () => {
+    expect(() =>
+      resolveVariableAddress(
+        makeNode({ pouName: 'MAIN', variablePath: 'GONE' }),
+        pmap(['INSTANCE0.STILL_HERE', 1, 2]),
+        instances,
+      ),
+    ).toThrow(OpcUaConfigError)
+  })
+
+  it('falls back for a field of a global struct saved under the program', () => {
+    const resolved = resolveStructureAddresses(
+      makeNode({
+        pouName: 'MAIN',
+        variablePath: 'GLOBAL_STRUCT',
+        nodeType: 'structure',
+        fields: [makeField({ fieldPath: 'FIELD1' })],
+      }),
+      pmap(['GLOBAL_STRUCT.FIELD1', 3, 4, 'REAL', 4]),
+      instances,
+    )
+    expect(resolved).toHaveLength(1)
+    expect(resolved[0]).toMatchObject({ name: 'FIELD1', arr: 3, elem: 4, datatype: 'REAL' })
+  })
+})

@@ -1,0 +1,113 @@
+/**
+ * CompilerPort — Abstracts the PLC compilation pipeline.
+ *
+ * Editor adapter: Delegates to main process via IPC (local tools: STruC++, arduino-cli).
+ * Web adapter:    Delegates to remote API at compile.getedge.me (callGenerateSt, callCompileSt, etc.).
+ *
+ * The UI only knows "compile this project" and receives progress events.
+ * The adapter decides whether to call local binaries or remote HTTP endpoints.
+ *
+ * ## Editor IPC methods replaced:
+ *   - window.bridge.runCompileProgram()
+ *   - window.bridge.runDebugCompilation()
+ *
+ * ## Web service methods replaced:
+ *   - callGenerateSt()
+ *   - callCompileSt()
+ *   - callGenerateDebug()
+ *   - callGenerateGlueVars()
+ *   - callCompileArduino()
+ */
+
+import type {
+  CompileLibraryResult,
+  CompileProgressEvent,
+  CompileResult,
+  DebugCompileResult,
+  PLCProjectData,
+  Unsubscribe,
+} from './types'
+
+export interface CompileProgramArgs {
+  projectData: PLCProjectData
+  boardTarget: string
+  projectPath: string
+  communicationPort?: string
+  compileOnly?: boolean
+  cleanBuild?: boolean
+  isSimulator?: boolean
+  runtimeIpAddress?: string | null
+  runtimeJwtToken?: string | null
+  /** User-authored configuration-screen data
+   *  (`DeviceConfiguration.vendorScreenData`).  Threaded through the
+   *  port so the shared `runCompilePipeline` can emit `vpp_config.h`
+   *  for arduino-cli VPP boards (Arduino Opta, P1AM).  The pipeline
+   *  gates emission on the board's resolved `vppIo` capability;
+   *  non-VPP boards ignore this. */
+  vendorScreenData?: Record<string, unknown>
+}
+
+export interface DebugCompileArgs {
+  projectData: PLCProjectData
+  boardTarget: string
+  projectPath: string
+}
+
+/**
+ * Inputs for a library build.  The backend reads `library.json` from
+ * the project root fresh on each invocation (the manifest tab's
+ * surgical-save flow writes it ahead of the build click), so this
+ * struct only needs the in-memory project data and the path; the
+ * adapter doesn't have to round-trip the manifest contents through
+ * the bridge.
+ */
+export interface CompileLibraryArgs {
+  projectData: PLCProjectData
+  projectPath: string
+}
+
+export interface CompilerPort {
+  /**
+   * Run the full compilation pipeline (project IR -> ST -> strucpp -> binary).
+   * Emits progress events for UI feedback.
+   */
+  compileProgram(args: CompileProgramArgs, onProgress: (event: CompileProgressEvent) => void): Promise<CompileResult>
+
+  /**
+   * Run a debug-mode compilation that produces debug symbols.
+   * Used before connecting the debugger to verify program integrity.
+   */
+  compileForDebug(
+    args: DebugCompileArgs,
+    onProgress: (event: CompileProgressEvent) => void,
+  ): Promise<DebugCompileResult>
+
+  /**
+   * Build a `.stlib` archive from a Library Project on disk.
+   * Editor: validates the manifest, runs the in-process ST transpiler,
+   *   pipes the result through strucpp's library compiler, and
+   *   writes the archive to `<projectPath>/build/<name>.stlib`.
+   * Web (future): posts the project + manifest to a remote service
+   *   that performs the same flow on the server side.
+   *
+   * Library builds are only valid for projects with `meta.type ===
+   * 'plc-library'`.  Caller is expected to gate the invocation via
+   * `projectCapabilities(meta).hasLibraryBuild`.
+   *
+   * Returns the artefact path on success, or an error string the
+   * console renders directly.  The build is target-neutral: it runs
+   * strucpp and nothing else, so a library that could never link on
+   * one particular board still produces a valid archive.  Executing
+   * the library is a separate action — see `composeLibraryDebugHarness`.
+   */
+  compileLibrary?(
+    args: CompileLibraryArgs,
+    onProgress: (event: CompileProgressEvent) => void,
+  ): Promise<CompileLibraryResult>
+
+  /**
+   * Subscribe to compilation output logs (stdout/stderr streaming).
+   * Returns unsubscribe function.
+   */
+  onCompileOutput?(callback: (line: string) => void): Unsubscribe
+}

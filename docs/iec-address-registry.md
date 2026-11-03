@@ -1,0 +1,327 @@
+# Central IEC Address Registry — Architecture
+
+> Status: **approved design, in implementation**
+> Scope: `openplc-editor` + `openplc-web` (shared surface — byte-identical)
+> Supersedes the scattered per-producer address allocators and the
+> derived `address-pool` / `alias-registry` / `sync-variable-aliases` trio.
+
+## 1. Motivation
+
+IEC 61131-3 addresses are a **single, finite, shared resource**. Every
+producer — pin mapping, VPP I/O modules, Modbus remote devices, EtherCAT
+slaves, and anything added later — draws from the same address spaces
+(`%IX`, `%QX`, `%IW`, `%QW`, `%MW`, …). Today each producer:
+
+- stores its own addresses in its own domain records,
+- allocates them with its own copy of the "find next free" loop
+  (EtherCAT even has a *separate* bit-offset allocator), and
+- owns its channels' aliases independently, reconciled to program
+  variables only opportunistically.
+
+The result is duplication, drift, and no project-wide gap reclamation
+(deleting a consumer leaves holes). Aliases — the thing user code should
+depend on — are the most fragmented of all.
+
+**This design makes a single store the source of truth for consumers,
+their address assignments, and their aliases.** Producers become thin
+clients that *register channels* and *read addresses back*. User program
+variables reference aliases (or manual literal addresses); the compiler
+resolves them.
+
+## 2. Concepts
+
+- **Consumer** — anything that needs addresses: a VPP module in a slot, a
+  Modbus IO group, an EtherCAT slave, a pin block. Identified by a stable
+  `id`, tagged with a `kind`, and given a deterministic `order`.
+- **Channel** — one address request inside a consumer. Has a **stable,
+  address-independent `channelId`**, an address **class**, an optional
+  **alias**, and an optional **pinned** literal address (fixed hardware).
+  > The stable `channelId` is the linchpin: aliases and variable bindings
+  > attach to the channel, **not** to the address, so when reallocation
+  > moves the channel the alias follows it automatically.
+- **Address class** — `{ direction: I|Q|M, size: X|B|W|D|L }`. Maps to a
+  prefix (`%IX`, `%QB`, `%QW`, …). **Each prefix is an independent linear
+  space — no byte/word/dword overlap** (matches the OpenPLC runtime, which
+  uses separate typed buffers per prefix).
+- **Assignment** — the derived `(consumerId, channelId) → address` map,
+  recomputed by `recalculate()`.
+- **Alias** — a user-facing name, **unique system-wide**, owned by the
+  registry and attached to a channel.
+
+## 3. The registry (source of truth)
+
+Serialized as a dedicated project section:
+
+```ts
+interface IecAddressRegistry {
+  consumers: RegistryConsumer[]              // the record
+  assignments: Record<string, string>        // derived cache: key(cid,chid) -> address
+}
+interface RegistryConsumer {
+  id: string
+  kind: 'pin-mapping' | 'vpp-io' | 'modbus-tcp-remote' | 'ethercat' | string
+  label?: string
+  order: number                              // deterministic allocation order
+  channels: RegistryChannel[]
+}
+interface RegistryChannel {
+  channelId: string                          // stable, address-independent
+  class: { direction: 'I'|'Q'|'M'; size: 'X'|'B'|'W'|'D'|'L' }
+  alias?: string                             // unique system-wide; empty = none
+  pinned?: string                            // fixed hardware address → reserved, not allocated
+}
+```
+
+Producers keep only their **domain** config (a Modbus group still has its
+function code, cycle time, etc.) plus the `consumerId` they registered
+under. They no longer store IEC addresses or aliases.
+
+## 4. Generic API
+
+```ts
+// pure core (framework-agnostic); a Zustand slice wraps it 1:1
+createRegistry(): IecAddressRegistry
+addConsumer(reg, consumer): IecAddressRegistry            // append + recalculate
+removeConsumer(reg, consumerId): IecAddressRegistry        // drop + recalculate (fills gaps)
+updateConsumer(reg, consumerId, patch): IecAddressRegistry // change channels/order + recalculate
+setAlias(reg, consumerId, channelId, alias): SetAliasResult // system-wide uniqueness gate (the ONE gate)
+recalculate(reg): { registry, conflicts }                  // reassign all — deterministic, gapless, idempotent
+// queries
+addressOf(reg, consumerId, channelId): string | undefined
+buildAliasIndex(reg): Map<alias, address>
+resolveLocation(field, aliasIndex): string                 // compile-time: alias|literal -> address
+```
+
+`recalculate()` is **idempotent** (same input → same output) so it is safe
+to call on every mutation, on project load, and pre-compile.
+
+## 5. Allocation algorithm
+
+1. **Reserve** every `pinned` channel at its literal address (pin-mapping,
+   or any explicitly-fixed channel). Two pinned channels on the same
+   address are reported as a conflict (first wins).
+2. **Allocate** every non-pinned channel, walking consumers in `order`
+   (ties broken by `id`) and channels in declaration order, taking the
+   **lowest free index** in that channel's prefix space.
+3. Bit prefixes (`%IX`/`%QX`/`%MX`) address as `byte.bit`
+   (`linear = byte*8 + bit`); all other sizes are index-addressed.
+
+Determinism (stable order + stable channel order) guarantees reproducible
+results across sessions, so a re-open never gratuitously renumbers.
+
+`allocateAddresses` returns `{ assignments, conflicts, slotCounts }`.
+
+### 5.1 Slot counts: how big the I/O image has to be
+
+Both passes above already build the reservation set for each prefix space,
+so the allocator knows exactly how far into each space the producers reach.
+`slotCounts` publishes that: prefix (`%IX`, `%QW`, …) → highest claimed
+linear index **plus one**, i.e. how many slots that space needs.
+
+It is the number the compile pipeline sizes the runtime's I/O image
+from, instead of the fixed per-platform `MAX_*` / `BUFFER_SIZE`. Three
+properties of it are load-bearing:
+
+- **A prefix nobody claimed is absent, not zero-valued.** Absent and `0` mean
+  the same thing, and callers read `slotCounts[prefix] ?? 0`. A class with no
+  producers sizes to zero — the floor is always zero, never a minimum.
+- **Bit spaces count bits**, matching `linear` — `%IX1.2` is bit 10, so the
+  count is 11. Rounding up to a whole byte is the firmware buffer's concern
+  (bit areas are declared `[MAX_/8][8]`), not the registry's.
+- **It is a high-water mark, not a channel count.** A pinned channel at
+  `%QW9` needs 10 slots even if it is the only one, because the gap below it
+  is addressable storage.
+
+Unparseable `pinned` addresses take no part in the linear reservation, so
+they contribute nothing here — the same exception `assignments` makes.
+
+### 5.2 Capability scoping vs. unresolved targets
+
+Allocation is scoped to the consumer kinds the active target supports
+(`allocateAddresses`'s `activeKinds`). Deactivating a kind is deliberate and
+load-bearing: switching to a board without VPP frees the VPP space, and the
+still-active producers compact into it on the next recalculation.
+
+The invariant that makes that safe:
+
+> **An unknown target is permissive for allocation and empty for feature
+> gating.**
+
+`resolveTargetCapabilities(undefined)` answers `EMPTY_CAPABILITIES`, which is
+correct for gating — never offer an affordance the target can't back. Feeding
+that same answer to the allocator is not: an empty `activeKinds` set is
+indistinguishable from "this target supports nothing", so **every** consumer
+is filtered out, `assignments` comes back empty, and the write-back leaves the
+stale addresses in place while reporting success. A board id fails to resolve
+whenever the VPP package isn't installed, the project was authored elsewhere,
+or the catalogue hasn't loaded yet — all ordinary situations.
+
+So the store distinguishes the two cases (`allocationCapabilities` /
+`activeKindsForAllocation` in the project slice): a target that **answered** is
+honoured exactly as declared; a target that **didn't resolve** allocates with
+every producer active (`ALL_ADDRESS_PRODUCERS_ACTIVE`). Permissive is the safe
+direction — the worst case is compaction for a producer the eventual target
+turns out not to support, and selecting that target recalculates anyway.
+
+**The consequence to be aware of:** a project authored while the target is
+unresolved allocates with every producer active, so once the package is
+installed and the target resolves, capabilities can shrink and the addresses
+**recompact on that first open**. For alias-bound variables that is
+transparent — it is the whole reason the registry exists. For a variable bound
+to a literal `%addr` the binding does not follow, and the amber
+orphan/collision glyph on the location cell is what surfaces it. That is
+acceptable, and strictly better than the previous symptom (stale addresses,
+reported as success), but it is not derivable from the invariant alone.
+
+Capability scoping is the **single authority** on which producers are active:
+no kind is ever forced on in a provisional pool. That holds because every
+producer's creation path is capability-gated in the UI, so "capability off"
+and "cannot author this producer" coincide. Remote devices reach that state
+through two predicates rather than one — the project type
+(`projectCaps.hasRemoteDevices`, false for libraries) and the target
+(`modbusTcpRemote || ethercat`, the same predicate the variable-location
+dropdown uses). Devices already configured stay **visible** on a target that
+can't host them, because the board-switch warning promises they are "disabled
+during compilation", not removed; only creating a new one is refused.
+
+## 6. Aliases and variable binding
+
+- **Aliases live only in the registry**, attached to channels. Uniqueness
+  is enforced in the single `setAlias` gate — no producer can create a
+  duplicate.
+- **A program variable's location field holds either an alias name or a
+  literal IEC address.** The compiler only understands IEC addresses, so
+  the editor resolves at compile time (`resolveLocation`):
+  - **alias** → the alias's current address from the registry;
+  - **alias no longer exists** → empty location (variable is unlocated —
+    this already matches today's orphan behavior);
+  - **literal `%…`** → used **verbatim**.
+- **Manual literal addresses are fully manual.** The allocator does **not**
+  reserve or avoid them. If the user types `%QX0.3` and later reallocation
+  assigns `%QX0.3` to some channel, that is the user's responsibility —
+  we honor exactly what they typed. This keeps the manual escape hatch
+  simple and predictable.
+- Because aliases attach to the stable channel, moving `%QX0.3 → %QX0.5`
+  updates `alias → address` automatically; every variable using that alias
+  now resolves to `%QX0.5` with no user action. **That is the whole point:
+  user code is address-agnostic.**
+
+## 7. Migrate-on-open (existing projects → registry format)
+
+Old projects store addresses and aliases scattered across producer records
+and have no `addressRegistry` section. On project open, when the section is
+absent, run a **one-shot pure migration**:
+
+1. **Build consumers** from legacy producer state, one consumer per natural
+   unit, preserving channel order:
+   - `pin-mapping` → one pinned channel per board pin (alias from `pin.alias`).
+   - `vpp-io` → one consumer per slot/module; channels from its
+     `io-mapping` entries (class from `entry.iecAddress`, alias from
+     `entry.alias`).
+   - `modbus-tcp-remote` → one consumer per IO group; channels from
+     `ioPoints` (class from function code, alias from `point.alias`).
+   - `ethercat` → one consumer per slave; channels from `channelMappings`
+     (alias from `mapping.alias`).
+   Each channel's **initial `pinned` = its current legacy address**, so the
+   first `recalculate()` reproduces exactly today's addresses (nothing
+   moves on open).
+2. **Adopt variables onto aliases.** For each program variable whose
+   `location` matches an aliased channel address, rewrite `location` to the
+   **alias name** (self-upgrade — today's `adopt`). Variables on a
+   non-aliased address stay as manual literals; variables already using an
+   alias are unchanged.
+3. **Unpin.** After adoption, clear the temporary `pinned` seeds on the
+   allocatable (non-hardware) channels so subsequent edits can compact
+   gaps. Genuine hardware pins (pin-mapping) stay pinned.
+4. **Strip** the now-migrated address/alias fields from producer records
+   and write the `addressRegistry` section. Bump a project schema version
+   so the migration runs exactly once.
+
+The migration is a pure function `migrateProjectToRegistry(project)` with
+its own exhaustive tests (round-trip: legacy project → registry →
+addresses identical to the originals; aliases preserved; variables
+adopted).
+
+## 8. Compilation
+
+At compile, the pipeline resolves each variable's location through
+`resolveLocation(field, buildAliasIndex(registry))` and emits the concrete
+`%…` (or an empty location, dropping the `AT %…`, when an alias orphaned).
+Literals pass through unchanged. No producer-specific address logic remains
+in the emitters.
+
+## 9. Module layout (shared surface)
+
+```
+middleware/shared/utils/iec-address/registry/
+  types.ts          # Consumer, Channel, AddressClass, IecAddressRegistry, reports
+  address-space.ts  # prefix<->class, bit linearization, parse/format, lowest-free
+  allocate.ts       # allocateAddresses(consumers) -> { assignments, conflicts, slotCounts }
+  registry.ts       # createRegistry / add / remove / update / setAlias / recalculate / queries
+  resolve.ts        # buildAliasIndex, resolveLocation (compile-time)
+  migrate.ts        # migrateProjectToRegistry (legacy -> registry) [Phase 2]
+  index.ts
+frontend/store/slices/iec-address/   # Zustand slice wrapping the pure core [Phase 2]
+```
+
+The pure core carries no framework or Electron coupling and is
+byte-identical across both repos. The old `address-pool.ts` /
+`alias-registry.ts` / `sync-variable-aliases.ts` are removed once every
+producer and the compiler have moved to the registry.
+
+## 10. Phased delivery
+
+- **Phase 1** — pure core (§3–§6 minus migration): types, address-space,
+  allocator, registry ops, `resolveLocation`. Fully unit-tested. No wiring.
+- **Phase 2** — `migrateProjectToRegistry` + the Zustand slice + wire into
+  project load (schema-version gated).
+- **Phase 3** — Modbus + EtherCAT register as consumers; delete their
+  bespoke allocators. **Delivers project-wide gap reclamation (bug #4).**
+- **Phase 4** — VPP registers as consumers (module-channel resolver
+  injected); delete the two allocator effects.
+- **Phase 5** — pin-mapping as pinned consumer; unify alias editing on the
+  single `setAlias` gate.
+- **Phase 6** — compiler resolves via the registry; delete the legacy
+  pool/registry/sync modules and the now-redundant producer fields.
+
+Each phase ships as a paired editor+web PR keeping the shared surface
+byte-identical.
+
+## 11. Implementation status
+
+Shipped on `feat/central-iec-address-registry` (editor + web, byte-identical):
+
+- **Pure core** — types, address-space, allocator (capability-scoped,
+  gapless, deterministic), registry ops, `resolveLocation`, migration
+  transform, and the session **alias-memory** (`memoryKey` +
+  `restoreAliasesFromMemory`, keyed `moduleId:slot:channel`, also for the
+  entries an embedded configurator's station produces; held in the store, never
+  serialized, reset on a fresh project).
+- **Central action** `recalculateIecAddresses` reallocates **VPP + Modbus +
+  EtherCAT** together (`ALLOCATED_KINDS`), capability-scoped, restoring aliases
+  from the session memory, and writes addresses + aliases back to each
+  producer (VPP `io-mapping`, Modbus `ioPoints`, EtherCAT `channelMappings`).
+  Invoked from every producer mutation and on target switch.
+- **Pins** participate as **fixed constraints** — hardware addresses are never
+  reallocated; their aliases persist per-board and flow through the same
+  registry uniqueness gate. But a pin edit MOVES those constraints, so
+  `createNewPin` / `removePin` / `updatePin` drive the central recalculation
+  whenever the pin address signature changes (alias-only and pin-number-only
+  edits skip it). Without that, `removePin` slid the freed slot to the end of
+  the pin block and left it stranded, and `createNewPin` could mint an address
+  already held by a VPP or Modbus channel — an unreported two-producer
+  collision.
+- **Unresolved targets** allocate permissively rather than as if the target
+  supported nothing — see §5.2.
+- **Aliases** resolve to concrete IEC addresses **in the editor** (each
+  variable's `location` is kept resolved); the compiler/runtime are untouched.
+
+**Deliberately deferred** (superseded but still present; removal needs the
+class-carrying-entry refactor + a `syncVariableAliases` migration, both best
+verified in-app): the VPP effects' provisional `nextFreeAddress` seeding
+(overwritten by the central recalc), the EtherCAT `esi-parser` overlap
+allocator (superseded by the independent-prefix model — confirmed against the
+runtime's separate typed buffers), and the legacy `address-pool` /
+`alias-registry` read model (still backs `syncVariableAliases` and the
+per-producer alias-uniqueness gates — consistent with the registry because
+both derive from the same producer state).

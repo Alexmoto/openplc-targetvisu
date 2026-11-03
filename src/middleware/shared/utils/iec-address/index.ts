@@ -1,0 +1,30 @@
+export {
+  type AddressPool,
+  buildAddressPool,
+  type BuildPoolOptions,
+  type ClaimedAddress,
+  type ConflictReport,
+  isAddressClaimed,
+  listClaims,
+  nextFreeAddress,
+  type PoolInputs,
+  type PoolPinMappingInput,
+  type PoolRemoteDeviceInput,
+  type PoolVppIoInput,
+  type SourceKind,
+  type SourceRef,
+} from './address-pool'
+export {
+  type AliasEditValidation,
+  type AliasEntry,
+  type AliasRegistry,
+  buildAliasRegistry,
+  describeAliasRejection,
+  describeSource,
+  isAliasConflict,
+  isAliasNameAvailable,
+  resolveAlias,
+  validateAliasEdit,
+  validateAliasName,
+} from './alias-registry'
+export { resolveProjectAliases } from './resolve-project-aliases'

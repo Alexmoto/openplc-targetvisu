@@ -1,0 +1,1076 @@
+import type { RawProjectFile } from '../../../../middleware/shared/ports/project-port'
+import { parseProjectFiles } from '../parse-project-files'
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Minimal valid project.json content. */
+function makeProjectJson(overrides: Record<string, unknown> = {}) {
+  return JSON.stringify({
+    meta: { name: 'TestProject', type: 'plc-project' },
+    data: {
+      dataTypes: [],
+      pous: [],
+      configuration: {
+        resource: {
+          tasks: [],
+          instances: [],
+          globalVariables: [],
+        },
+      },
+      ...overrides,
+    },
+  })
+}
+
+/** Minimal valid device configuration JSON. */
+function makeDeviceConfig() {
+  return JSON.stringify({
+    deviceBoard: 'uno',
+    communicationPort: 'COM1',
+    compileOnly: false,
+  })
+}
+
+/** Minimal valid pin mapping JSON. */
+function makePinMapping() {
+  return JSON.stringify([{ pin: 'D2', pinType: 'digitalInput', address: '%IX0.0' }])
+}
+
+/** Build a minimal valid .st POU file content. */
+function makeStContent(pouName: string, pouType: 'PROGRAM' | 'FUNCTION' | 'FUNCTION_BLOCK', returnType?: string) {
+  const declaration = returnType ? `${pouType} ${pouName} : ${returnType}` : `${pouType} ${pouName}`
+  const endKeyword =
+    pouType === 'PROGRAM' ? 'END_PROGRAM' : pouType === 'FUNCTION' ? 'END_FUNCTION' : 'END_FUNCTION_BLOCK'
+  return `${declaration}\nVAR\nEND_VAR\n\n${endKeyword}`
+}
+
+// ---------------------------------------------------------------------------
+// Basic parsing
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — basic', () => {
+  it('says so when project.json is missing, instead of opening a default project in silence', () => {
+    const result = parseProjectFiles('/my/project', '', makeDeviceConfig(), makePinMapping(), [], [], [])
+
+    expect(result.warnings?.some((w) => w.includes('project.json was missing or empty'))).toBe(true)
+    // Still opens — the warning is the point, not a refusal.
+    expect(result.meta.path).toBe('/my/project')
+  })
+
+  it('parses a minimal valid project with no POU files', () => {
+    const result = parseProjectFiles('/my/project', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.meta.name).toBe('TestProject')
+    expect(result.meta.type).toBe('plc-project')
+    expect(result.meta.path).toBe('/my/project')
+    expect(result.projectData.pous).toEqual([])
+    expect(result.deviceConfiguration).toBeDefined()
+    expect(result.devicePinMapping).toBeDefined()
+    expect(result.warnings).toBeUndefined()
+  })
+
+  it('parses ST POU files correctly', () => {
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/programs/Main.st', content: makeStContent('Main', 'PROGRAM') },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('Main')
+    expect(result.projectData.pous[0].pouType).toBe('program')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Legacy alias → single-field location migration (foldLegacyVariableAliases)
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — legacy alias migration', () => {
+  it('folds a JSON POU variable with a non-empty alias into its location', () => {
+    // Old two-field model: `location` held the resolved %address, `alias` the alias name.
+    const legacyPou = JSON.stringify({
+      type: 'program',
+      data: {
+        name: 'Legacy',
+        variables: [
+          {
+            name: 'sensor',
+            class: 'local',
+            type: { definition: 'base-type', value: 'BOOL' },
+            location: '%IX0.0',
+            alias: 'flow_sensor',
+            documentation: '',
+          },
+        ],
+        body: { language: 'st', value: '' },
+        documentation: '',
+      },
+    })
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/Legacy.json', content: legacyPou }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    const variable = result.projectData.pous[0].interface?.variables[0]
+    // Alias name folded into location; the `alias` field is gone.
+    expect(variable?.location).toBe('flow_sensor')
+    expect('alias' in (variable as unknown as Record<string, unknown>)).toBe(false)
+  })
+
+  it('leaves a manual (empty-alias) JSON POU variable location untouched', () => {
+    const legacyPou = JSON.stringify({
+      type: 'program',
+      data: {
+        name: 'Manual',
+        variables: [
+          {
+            name: 'coil',
+            class: 'local',
+            type: { definition: 'base-type', value: 'BOOL' },
+            location: '%QX0.0',
+            alias: '',
+            documentation: '',
+          },
+        ],
+        body: { language: 'st', value: '' },
+        documentation: '',
+      },
+    })
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/Manual.json', content: legacyPou }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    const variable = result.projectData.pous[0].interface?.variables[0]
+    // Empty alias is not a binding — the manual %address is preserved.
+    expect(variable?.location).toBe('%QX0.0')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// detectPouTypeFromPath: function-block and function detection
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — POU type detection throws for unknown path', () => {
+  it('throws when POU path does not match any known directory', () => {
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/unknown-dir/something.st', content: 'PROGRAM something\nEND_PROGRAM' },
+    ]
+    expect(() =>
+      parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], []),
+    ).toThrow('Cannot determine POU type from path')
+  })
+})
+
+describe('parseProjectFiles — POU type detection from path', () => {
+  it('detects function-block type from path', () => {
+    const content = makeStContent('MyFB', 'FUNCTION_BLOCK')
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/function-blocks/MyFB.st', content }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous[0].pouType).toBe('function-block')
+  })
+
+  it('detects function type from path', () => {
+    const content = makeStContent('MyFunc', 'FUNCTION', 'INT')
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/functions/MyFunc.st', content }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous[0].pouType).toBe('function')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// getLanguageFromExt returns null for unsupported extension
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — unsupported file extension', () => {
+  it('returns null for a file with an unknown extension', () => {
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/programs/main.xyz', content: 'PROGRAM main\nEND_PROGRAM' },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(0)
+  })
+
+  it('returns null for a file with no extension', () => {
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/noext', content: 'PROGRAM noext\nEND_PROGRAM' }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// createFallbackPou (reached via parse failure)
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — fallback POU creation', () => {
+  it('falls back when ST parsing fails (e.g. malformed content)', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/broken.st',
+        // Missing END_PROGRAM will cause parser to throw
+        content: 'PROGRAM broken\nVAR\n  x : INT;\nEND_VAR\nbody content here',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('broken')
+    expect(result.projectData.pous[0].variablesText).toBeDefined()
+    consoleSpy.mockRestore()
+  })
+
+  it('marks a fallback POU as unparsed, and a POU that parsed as not', () => {
+    // "has text but no variables" used to be the signal that a POU's
+    // declarations had failed to parse. Every POU carries its text now, so an
+    // empty-but-valid POU matched that signal too and was forced into the code
+    // view on open (DOPE-650). The flag says it explicitly.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/broken.st',
+        content: 'PROGRAM broken\nVAR\n  x : INT;\nEND_VAR\nbody content here',
+      },
+      {
+        relativePath: 'pous/programs/empty.st',
+        content: 'PROGRAM empty\nVAR\nEND_VAR\n\nEND_PROGRAM',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    const byName = (name: string) => result.projectData.pous.find((pou) => pou.name === name)
+    expect(byName('broken')?.variablesTextUnparsed).toBe(true)
+    expect(byName('empty')?.variablesText).toBeDefined()
+    expect(byName('empty')?.variablesTextUnparsed).toBeUndefined()
+    consoleSpy.mockRestore()
+  })
+
+  it('derives the fallback name from the basename even for Windows backslash paths', () => {
+    // path.join emits backslashes on Windows; the basename must not include the directory.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous\\functions\\Siren_FC.st',
+        // Missing END_FUNCTION / return type → parser throws → fallback.
+        content: 'FUNCTION Siren_FC\nVAR_INPUT\n  x : INT;\nEND_VAR\nbody',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('Siren_FC')
+    consoleSpy.mockRestore()
+  })
+
+  it('loads a located interface-class variable rather than dropping the POU’s table (issue #904, revisited)', () => {
+    // #904 made the loader REFUSE this POU: the variables list came back empty
+    // and a warning pointed at the code view for repair. That cost more than
+    // it bought — the user lost every other variable in the POU and had only
+    // raw text to work from.
+    //
+    // The declaration text is the source of truth now (DOPE-650), so the POU
+    // loads intact: the offending variable is visible in the table with its
+    // location cell locked (the class forbids it), and the rule is still
+    // enforced everywhere it matters — `validateVariableSet` refuses the edit
+    // in both views, and STruC++ refuses the build with a message that names
+    // the variable and the fix: "Variable 'Q1' in VAR_OUTPUT cannot have a
+    // location ('AT %QX0.0'). Only VAR and VAR_GLOBAL declarations may be
+    // located."
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/main.st',
+        content:
+          'PROGRAM main\nVAR_OUTPUT\n  Q1 : BOOL AT %QX0.0;\nEND_VAR\nVAR\n  latch : RS;\nEND_VAR\n\n\nEND_PROGRAM',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+
+    expect(result.projectData.pous).toHaveLength(1)
+    const [pou] = result.projectData.pous
+    expect(pou.interface?.variables.map((variable) => variable.name)).toEqual(['Q1', 'latch'])
+    expect(pou.interface?.variables[0].location).toBe('%QX0.0')
+    // The declarations are still preserved verbatim — that half of #904 stands.
+    expect(pou.variablesText).toContain('AT %QX0.0')
+    consoleSpy.mockRestore()
+  })
+
+  it('reports an unparseable graphical body as fatal, not as a partial-data warning', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/programs/FbdPou.fbd', content: 'PROGRAM FbdPou\nnot valid json\nEND_PROGRAM' },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.fatalErrors).toBeDefined()
+    expect(result.fatalErrors!.some((e) => e.includes('FbdPou'))).toBe(true)
+    // and it must NOT be downgraded to a recoverable warning
+    expect(result.warnings?.some((w) => w.includes('partial data')) ?? false).toBe(false)
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback extracts documentation from (* ... *) comments', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/doctest.st',
+        content: '(* This is documentation *)\nPROGRAM doctest\nVAR\n  a : INT;\nEND_VAR\nbody here',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous[0].documentation).toBe('This is documentation')
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback handles graphical language (LD) with valid JSON body', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const bodyJson = JSON.stringify({ name: 'LdPou', rungs: [{ id: 'n1', nodes: [], edges: [] }] })
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/LdPou.ld',
+        // Malformed enough that normal parsing fails, but has valid JSON body
+        content: `PROGRAM LdPou\n${bodyJson}\nEND_PROGRAM`,
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('drops a graphical POU with an invalid JSON body rather than defaulting it', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/FbdPou.fbd',
+        content: 'PROGRAM FbdPou\nnot valid json\nEND_PROGRAM',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    // No POU at all: the caller opens the editor empty and read-only.
+    expect(result.projectData.pous).toHaveLength(0)
+    expect(result.fatalErrors).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('treats an LD body that is not JSON as fatal, with or without END_PROGRAM', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/NoEnd.ld',
+        content: 'PROGRAM NoEnd\nnot json',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(0)
+    expect(result.fatalErrors!.some((e) => e.includes('NoEnd'))).toBe(true)
+    consoleSpy.mockRestore()
+  })
+
+  it.each([
+    ['an FBD-shaped body in an LD POU', 'Main.ld', '{"nodes":[],"edges":[],"viewport":{"x":0,"y":0,"zoom":1}}'],
+    ['an LD-shaped body in an FBD POU', 'Main.fbd', '{"name":"Main","rungs":[]}'],
+    ['a null body', 'Main.ld', 'null'],
+  ])('treats %s as fatal even though it is valid JSON', (_label, file, body) => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: `pous/programs/${file}`, content: `PROGRAM Main\nVAR\nEND_VAR\n\n${body}\nEND_PROGRAM` },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(0)
+    expect(result.fatalErrors).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('keeps a malformed VARIABLES section recoverable: the project still opens', () => {
+    // A bad declaration is repairable in-app, so it stays a warning and the body loads intact.
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/BadVars.ld',
+        content:
+          'PROGRAM BadVars\nVAR\n  this is not a declaration\nEND_VAR\n\n{"name":"BadVars","rungs":[]}\nEND_PROGRAM',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.fatalErrors).toBeUndefined()
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].body).toMatchObject({ language: 'ld', value: { rungs: [] } })
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback handles textual language (ST) without END_PROGRAM', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/NoEnd.st',
+        content: 'PROGRAM NoEnd\nsome body code',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback handles unknown language with empty body', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    // Exercises the empty-body branch via a python POU that fails parsing, since unknown
+    // extensions are filtered before that branch is reachable from the normal parse path.
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/PyPou.py',
+        content: 'PROGRAM PyPou\ndef main():\n  pass\nEND_PROGRAM',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback for function type includes returnType BOOL', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/functions/broken.st',
+        // Missing return type causes parser to throw, then fallback handles it
+        content: 'FUNCTION broken\nVAR\n  x : INT;\nEND_VAR\nbody',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].interface?.returnType).toBe('BOOL')
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback for function-block type does not include returnType', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/function-blocks/broken.st',
+        content: 'FUNCTION_BLOCK broken\nbody without end keyword',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].interface?.returnType).toBeUndefined()
+    consoleSpy.mockRestore()
+  })
+
+  it('fallback handles content with no declaration match (bodyStartIndex=0)', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const pouFiles: RawProjectFile[] = [
+      {
+        relativePath: 'pous/programs/nodecl.st',
+        content: 'just some random text that is not a POU declaration',
+      },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    consoleSpy.mockRestore()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// JSON POU parsing (legacy format + flat format + malformed)
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — JSON POU format', () => {
+  it('parses a JSON POU in legacy discriminated union format', () => {
+    const jsonContent = JSON.stringify({
+      type: 'program',
+      data: {
+        name: 'JsonPou',
+        variables: [],
+        body: { language: 'st', value: '' },
+        documentation: 'Some doc',
+      },
+    })
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/JsonPou.json', content: jsonContent }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('JsonPou')
+    expect(result.projectData.pous[0].documentation).toBe('Some doc')
+  })
+
+  it('parses a JSON POU in flat format (no type+data wrapper)', () => {
+    const jsonContent = JSON.stringify({
+      name: 'FlatPou',
+      pouType: 'program',
+      interface: { variables: [] },
+      body: { language: 'st', value: '' },
+    })
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/FlatPou.json', content: jsonContent }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('FlatPou')
+  })
+
+  it('returns null for malformed JSON POU file', () => {
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/BadJson.json', content: '{not valid json' }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// parsePouFile: Python, C++, LD, FBD paths + catch branches
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — Python and C++ POU parsing', () => {
+  it('parses a Python POU', () => {
+    const content = 'PROGRAM PyPou\nVAR\n  x : INT;\nEND_VAR\nprint("hello")\nEND_PROGRAM'
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/PyPou.py', content }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].body.language).toBe('python')
+  })
+
+  it('parses a C++ POU', () => {
+    const content = 'PROGRAM CppPou\nVAR\n  x : INT;\nEND_VAR\nint main() { return 0; }\nEND_PROGRAM'
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/CppPou.cpp', content }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].body.language).toBe('cpp')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// deduplicatePouFiles: text-based wins over JSON
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — POU deduplication', () => {
+  it('prefers text-based .st file over .json for the same POU name', () => {
+    const stContent = makeStContent('DupPou', 'PROGRAM')
+    const jsonContent = JSON.stringify({
+      type: 'program',
+      data: {
+        name: 'DupPouJson',
+        variables: [],
+        body: { language: 'st', value: 'old body' },
+        documentation: '',
+      },
+    })
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/programs/DupPou.json', content: jsonContent },
+      { relativePath: 'pous/programs/DupPou.st', content: stContent },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    // The ST-parsed version should win
+    expect(result.projectData.pous[0].name).toBe('DupPou')
+  })
+
+  it('keeps JSON file when text-based already exists (json is skipped)', () => {
+    const stContent = makeStContent('DupPou2', 'PROGRAM')
+    const jsonContent = JSON.stringify({
+      name: 'DupPou2',
+      pouType: 'program',
+      interface: { variables: [] },
+      body: { language: 'st', value: '' },
+    })
+    const pouFiles: RawProjectFile[] = [
+      { relativePath: 'pous/programs/DupPou2.st', content: stContent },
+      { relativePath: 'pous/programs/DupPou2.json', content: jsonContent },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// project.json Zod validation failure + malformed JSON
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — project.json error paths', () => {
+  it('uses defaults when project.json is empty string', () => {
+    const result = parseProjectFiles('/p', '', makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.meta.name).toBe('')
+    expect(result.meta.type).toBe('plc-project')
+  })
+
+  it('uses defaults when project.json has invalid structure', () => {
+    const result = parseProjectFiles(
+      '/p',
+      JSON.stringify({ meta: 123 }),
+      makeDeviceConfig(),
+      makePinMapping(),
+      [],
+      [],
+      [],
+    )
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('invalid structure'))).toBe(true)
+  })
+
+  it('uses defaults when project.json is malformed JSON', () => {
+    const result = parseProjectFiles('/p', '{not valid json}', makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('malformed'))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// device config validation failures / empty
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — device config error paths', () => {
+  it('uses defaults when device config is empty string', () => {
+    const result = parseProjectFiles('/p', makeProjectJson(), '', makePinMapping(), [], [], [])
+    expect(result.deviceConfiguration).toBeDefined()
+  })
+
+  it('uses defaults when device config has invalid structure', () => {
+    // deviceBoard must be a string — feeding a number forces a Zod
+    // validation failure, exercising the invalid-structure fallback.
+    const result = parseProjectFiles(
+      '/p',
+      makeProjectJson(),
+      JSON.stringify({ deviceBoard: 123 }),
+      makePinMapping(),
+      [],
+      [],
+      [],
+    )
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('configuration.json'))).toBe(true)
+    expect(result.deviceConfiguration).toBeDefined()
+  })
+
+  it('uses defaults when device config is malformed JSON', () => {
+    const result = parseProjectFiles('/p', makeProjectJson(), '{bad json}', makePinMapping(), [], [], [])
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('configuration.json') && w.includes('malformed'))).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// pin mapping validation failures / empty
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — pin mapping error paths', () => {
+  it('uses defaults when pin mapping is empty string', () => {
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), '', [], [], [])
+    expect(result.devicePinMapping).toBeDefined()
+  })
+
+  it('uses defaults when pin mapping has invalid structure', () => {
+    const result = parseProjectFiles(
+      '/p',
+      makeProjectJson(),
+      makeDeviceConfig(),
+      JSON.stringify([{ bad: true }]),
+      [],
+      [],
+      [],
+    )
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('pin-mapping.json'))).toBe(true)
+    expect(result.devicePinMapping).toBeDefined()
+  })
+
+  it('uses defaults when pin mapping is malformed JSON', () => {
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), '{bad}', [], [], [])
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('pin-mapping.json') && w.includes('malformed'))).toBe(true)
+  })
+
+  it('accepts the legacy flat-array shape and forwards it for store-side migration', () => {
+    // The parser passes the flat array through verbatim; keying it under the active board is
+    // `setDeviceDefinitions`'s job, not the parser's.
+    const legacy = JSON.stringify([{ pin: '13', pinType: 'digitalOutput', address: '%QX0.0', alias: 'led' }])
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), legacy, [], [], [])
+    expect(Array.isArray(result.devicePinMapping)).toBe(true)
+    expect(result.devicePinMapping).toEqual([{ pin: '13', pinType: 'digitalOutput', address: '%QX0.0', alias: 'led' }])
+  })
+
+  it('accepts the canonical per-board dict shape (post-migration)', () => {
+    const dict = JSON.stringify({
+      'Arduino Mega': [{ pin: '13', pinType: 'digitalOutput', address: '%QX0.0', alias: 'led' }],
+      'Arduino MKR WiFi 1010': [{ pin: 'A0', pinType: 'analogInput', address: '%IW0', alias: 'sensor' }],
+    })
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), dict, [], [], [])
+    expect(Array.isArray(result.devicePinMapping)).toBe(false)
+    expect(result.devicePinMapping).toEqual({
+      'Arduino Mega': [{ pin: '13', pinType: 'digitalOutput', address: '%QX0.0', alias: 'led' }],
+      'Arduino MKR WiFi 1010': [{ pin: 'A0', pinType: 'analogInput', address: '%IW0', alias: 'sensor' }],
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// server file parsing (valid, Zod fail, bad JSON)
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — server file parsing', () => {
+  it('parses a valid server config file', () => {
+    const serverJson = JSON.stringify({
+      name: 'TestServer',
+      protocol: 'modbus-tcp',
+      modbusSlaveConfig: {
+        enabled: true,
+        networkInterface: 'eth0',
+        port: 502,
+      },
+    })
+    const serverFiles: RawProjectFile[] = [{ relativePath: 'devices/servers/TestServer.json', content: serverJson }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], serverFiles, [])
+    expect(result.projectData.servers).toHaveLength(1)
+    expect(result.projectData.servers![0].name).toBe('TestServer')
+  })
+
+  it('skips server files with invalid Zod structure and adds warning', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const serverFiles: RawProjectFile[] = [
+      { relativePath: 'devices/servers/Bad.json', content: JSON.stringify({ name: 123 }) },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], serverFiles, [])
+    expect(result.projectData.servers).toHaveLength(0)
+    expect(result.warnings).toBeDefined()
+    expect(result.warnings!.some((w) => w.includes('Bad.json'))).toBe(true)
+    consoleSpy.mockRestore()
+  })
+
+  it('skips server files with malformed JSON', () => {
+    const serverFiles: RawProjectFile[] = [{ relativePath: 'devices/servers/Broken.json', content: '{not json' }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], serverFiles, [])
+    expect(result.projectData.servers).toHaveLength(0)
+  })
+
+  it('uses servers from project.json when no server files parsed', () => {
+    const projectJson = makeProjectJson({
+      servers: [{ name: 'FallbackServer', protocol: 'modbus-tcp' }],
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.servers).toHaveLength(1)
+    expect(result.projectData.servers![0].name).toBe('FallbackServer')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// remote device file parsing
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — remote device file parsing', () => {
+  it('parses a valid remote device config file', () => {
+    const deviceJson = JSON.stringify({
+      name: 'RemoteDev',
+      protocol: 'modbus-tcp',
+      modbusTcpConfig: {
+        timeout: 1000,
+        ioGroups: [],
+      },
+    })
+    const remoteFiles: RawProjectFile[] = [{ relativePath: 'devices/remote/RemoteDev.json', content: deviceJson }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], [], remoteFiles)
+    expect(result.projectData.remoteDevices).toHaveLength(1)
+    expect(result.projectData.remoteDevices![0].name).toBe('RemoteDev')
+  })
+
+  it('skips remote device files with invalid Zod structure and adds warning', () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const remoteFiles: RawProjectFile[] = [
+      { relativePath: 'devices/remote/Bad.json', content: JSON.stringify({ invalid: true }) },
+    ]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], [], remoteFiles)
+    expect(result.projectData.remoteDevices).toHaveLength(0)
+    expect(result.warnings).toBeDefined()
+    consoleSpy.mockRestore()
+  })
+
+  it('skips remote device files with malformed JSON', () => {
+    const remoteFiles: RawProjectFile[] = [{ relativePath: 'devices/remote/Broken.json', content: '{broken' }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), [], [], remoteFiles)
+    expect(result.projectData.remoteDevices).toHaveLength(0)
+  })
+
+  it('uses remote devices from project.json when no remote device files parsed', () => {
+    const projectJson = makeProjectJson({
+      remoteDevices: [{ name: 'FallbackRemote', protocol: 'modbus-tcp' }],
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.remoteDevices).toHaveLength(1)
+    expect(result.projectData.remoteDevices![0].name).toBe('FallbackRemote')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// configuration fallback defaults
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — configuration fallback', () => {
+  it('fills missing resource fields with empty arrays', () => {
+    const projectJson = JSON.stringify({
+      meta: { name: 'Test', type: 'plc-project' },
+      data: {
+        dataTypes: [],
+        pous: [],
+        configuration: {
+          resource: {},
+        },
+      },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.configurations.resource.tasks).toEqual([])
+    expect(result.projectData.configurations.resource.instances).toEqual([])
+    expect(result.projectData.configurations.resource.globalVariables).toEqual([])
+  })
+
+  it('fills missing resource entirely with defaults', () => {
+    // `{ resource: null }` isn't itself null/undefined, so `??` doesn't substitute the default;
+    // the explicit `if (!configuration.resource)` guard does instead.
+    const projectJson = JSON.stringify({
+      meta: { name: 'Test', type: 'plc-project' },
+      data: {
+        dataTypes: [],
+        pous: [],
+        configurations: { resource: null },
+      },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.configurations.resource).toBeDefined()
+    expect(result.projectData.configurations.resource.tasks).toEqual([])
+    expect(result.projectData.configurations.resource.instances).toEqual([])
+    expect(result.projectData.configurations.resource.globalVariables).toEqual([])
+  })
+
+  it('fills partially missing resource fields with empty arrays', () => {
+    const projectJson = JSON.stringify({
+      meta: { name: 'Test', type: 'plc-project' },
+      data: {
+        dataTypes: [],
+        pous: [],
+        configurations: { resource: { tasks: [] } },
+      },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.configurations.resource.tasks).toEqual([])
+    expect(result.projectData.configurations.resource.instances).toEqual([])
+    expect(result.projectData.configurations.resource.globalVariables).toEqual([])
+  })
+
+  it('provides default configuration when data has neither configuration nor configurations field', () => {
+    const projectJson = JSON.stringify({
+      meta: { name: 'Test', type: 'plc-project' },
+      data: {
+        dataTypes: [],
+        pous: [],
+      },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.configurations.resource.tasks).toEqual([])
+  })
+
+  it('reads debugVariables from project data', () => {
+    const projectJson = makeProjectJson({
+      debugVariables: { global: ['g1'], pous: { P1: ['v1'] } },
+    })
+    const result = parseProjectFiles('/p', projectJson, makeDeviceConfig(), makePinMapping(), [], [], [])
+    expect(result.projectData.debugVariables).toEqual({ global: ['g1'], pous: { P1: ['v1'] } })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POU name derivation from filename
+// ---------------------------------------------------------------------------
+
+describe('parseProjectFiles — POU name derivation', () => {
+  it('derives POU name from filename when parsed POU has no name', () => {
+    const jsonContent = JSON.stringify({
+      name: '',
+      pouType: 'program',
+      interface: { variables: [] },
+      body: { language: 'st', value: '' },
+    })
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/Derived.json', content: jsonContent }]
+    const result = parseProjectFiles('/p', makeProjectJson(), makeDeviceConfig(), makePinMapping(), pouFiles, [], [])
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].name).toBe('Derived')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Data type files (datatypes/<Name>.dt) — hydration matrix
+// ---------------------------------------------------------------------------
+
+describe('data type file hydration', () => {
+  const legacyEnum = {
+    name: 'Color',
+    derivation: 'enumerated',
+    initialValue: '',
+    values: [{ description: 'Red' }, { description: 'Green' }],
+  }
+
+  const parse = (dataTypeFiles: RawProjectFile[], jsonDataTypes: unknown[] = []) =>
+    parseProjectFiles(
+      '/p',
+      makeProjectJson({ dataTypes: jsonDataTypes }),
+      makeDeviceConfig(),
+      makePinMapping(),
+      [],
+      [],
+      [],
+      '',
+      dataTypeFiles,
+    )
+
+  const modeFile = { relativePath: 'datatypes/Mode.dt', content: 'TYPE\n  Mode : (Auto, Manual);\nEND_TYPE\n' }
+  const parsedMode = {
+    name: 'Mode',
+    derivation: 'enumerated',
+    values: [{ description: 'Auto' }, { description: 'Manual' }],
+    initialValue: '',
+  }
+
+  it('parses .dt files into dataTypes', () => {
+    const result = parse([modeFile])
+    expect(result.projectData.dataTypes).toEqual([parsedMode])
+    expect(result.warnings).toBeUndefined()
+    expect(result.unparsedDataTypeFiles).toBeUndefined()
+  })
+
+  // A half-migrated project — one `.dt` written while project.json still holds the rest —
+  // must keep every type.
+  it('keeps a legacy JSON type that has no .dt file beside it', () => {
+    const result = parse([modeFile], [legacyEnum])
+    expect(result.projectData.dataTypes).toEqual([parsedMode, legacyEnum])
+  })
+
+  it('lets a .dt file override the legacy JSON entry of the same name', () => {
+    const stale = { ...legacyEnum, name: 'Mode', values: [{ description: 'Stale' }] }
+    const result = parse([modeFile], [stale])
+    expect(result.projectData.dataTypes).toEqual([parsedMode])
+  })
+
+  it('matches the overridden name case-insensitively', () => {
+    const stale = { ...legacyEnum, name: 'mODe', values: [{ description: 'Stale' }] }
+    const result = parse([modeFile], [stale])
+    expect(result.projectData.dataTypes).toEqual([parsedMode])
+  })
+
+  // The file is the newer truth even when it cannot be read, so the stale
+  // inline copy must not reappear beside the raw file the save echoes back.
+  it('does not resurrect a legacy entry shadowed by an unparseable .dt', () => {
+    const broken = { relativePath: 'datatypes/Color.dt', content: 'TYPE\n  Color : ???;\nEND_TYPE\n' }
+    const result = parse([broken], [legacyEnum])
+    expect(result.projectData.dataTypes).toEqual([])
+    expect(result.unparsedDataTypeFiles).toEqual([broken])
+  })
+
+  it('falls back to legacy project.json dataTypes when no .dt files exist', () => {
+    const result = parse([], [legacyEnum])
+    expect(result.projectData.dataTypes).toEqual([legacyEnum])
+  })
+
+  it('yields an empty list when neither files nor legacy JSON carry types', () => {
+    const result = parse([], [])
+    expect(result.projectData.dataTypes).toEqual([])
+  })
+
+  // `data.dataTypes[].name` is external input that the save flow turns into a
+  // path segment, so a crafted project must not be able to escape `datatypes/`.
+  describe('legacy data type names are validated', () => {
+    it.each([
+      ['../../../../tmp/pwned', 'parent traversal'],
+      ['/etc/passwd', 'absolute path'],
+      ['sub/dir', 'forward slash'],
+      ['sub\\dir', 'backslash'],
+      ['has space', 'space'],
+      ['1leading-digit', 'leading digit'],
+    ])('drops a legacy type named %j (%s) with a warning', (name) => {
+      const result = parse([], [{ ...legacyEnum, name }])
+      expect(result.projectData.dataTypes).toEqual([])
+      expect(result.warnings?.some((w) => w.includes('invalid name'))).toBe(true)
+      expect(result.dataTypesNeedMigration).toBeUndefined()
+    })
+
+    it('keeps an ordinary identifier', () => {
+      const result = parse([], [{ ...legacyEnum, name: 'Valid_Name1' }])
+      expect(result.projectData.dataTypes.map((d) => d.name)).toEqual(['Valid_Name1'])
+      expect(result.warnings).toBeUndefined()
+    })
+  })
+
+  describe('dataTypesNeedMigration', () => {
+    it('is set for a pre-.dt project that still carries its types inline', () => {
+      expect(parse([], [legacyEnum]).dataTypesNeedMigration).toBe(true)
+    })
+
+    it('is unset once any .dt file exists', () => {
+      expect(parse([modeFile], [legacyEnum]).dataTypesNeedMigration).toBeUndefined()
+    })
+
+    it('is unset for a project with no data types at all', () => {
+      expect(parse([], []).dataTypesNeedMigration).toBeUndefined()
+    })
+  })
+
+  it('preserves unparseable .dt files raw with a warning instead of dropping them', () => {
+    const broken = { relativePath: 'datatypes/Broken.dt', content: 'TYPE\n  Broken : ???;\nEND_TYPE\n' }
+    const result = parse([broken, { relativePath: 'datatypes/Ok.dt', content: 'TYPE\n  Ok : (A);\nEND_TYPE\n' }])
+    expect(result.projectData.dataTypes.map((d) => d.name)).toEqual(['Ok'])
+    expect(result.unparsedDataTypeFiles).toEqual([broken])
+    expect(result.warnings?.some((w) => w.includes('datatypes/Broken.dt'))).toBe(true)
+  })
+
+  it('treats a declared-name/file-name mismatch as unparseable (raw preserved)', () => {
+    const mismatched = { relativePath: 'datatypes/Alpha.dt', content: 'TYPE\n  Beta : (A);\nEND_TYPE\n' }
+    const result = parse([mismatched])
+    expect(result.projectData.dataTypes).toEqual([])
+    expect(result.unparsedDataTypeFiles).toEqual([mismatched])
+    expect(result.warnings?.some((w) => w.includes('does not match'))).toBe(true)
+  })
+
+  it('keeps struct field documentation through schema validation (legacy JSON)', () => {
+    const structWithDoc = {
+      name: 'Motor',
+      derivation: 'structure',
+      variable: [
+        {
+          name: 'speed',
+          type: { definition: 'base-type', value: 'INT' },
+          initialValue: { simpleValue: { value: '' } },
+          documentation: 'target speed in rpm',
+        },
+      ],
+    }
+    const result = parse([], [structWithDoc])
+    expect(result.projectData.dataTypes).toEqual([structWithDoc])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Graphical POU holding a native library block
+// ---------------------------------------------------------------------------
+describe('graphical POU holding a native library block', () => {
+  // The block variant's authored source embeds its own `VAR ... END_VAR`; the body-start scan
+  // must not mistake that for the POU's own declaration block and slice into the JSON.
+  const nativeBlockSource = [
+    'FUNCTION_BLOCK TCP_CLIENT',
+    'VAR_INPUT',
+    '  EN : BOOL;',
+    '  END_VAR',
+    '#ifdef ARDUINO',
+    '#endif',
+  ].join('\n')
+
+  const ladderBody = {
+    name: 'Main',
+    rungs: [
+      {
+        id: 'rung-1',
+        nodes: [
+          {
+            id: 'block-1',
+            type: 'block',
+            data: { variant: { name: 'TCP_CLIENT', body: nativeBlockSource } },
+          },
+        ],
+        edges: [],
+      },
+    ],
+  }
+
+  const content = `PROGRAM Main\nVAR\n  x : BOOL;\nEND_VAR\n\n${JSON.stringify(ladderBody, null, 2)}\nEND_PROGRAM\n`
+
+  it('parses the rungs and reports no warning', () => {
+    const pouFiles: RawProjectFile[] = [{ relativePath: 'pous/programs/Main.ld', content }]
+    const result = parseProjectFiles('/p', makeProjectJson(), '{}', '[]', pouFiles, [], [])
+
+    // No warning at all is the point: the POU parsed, it did not fall back.
+    expect(result.warnings).toBeUndefined()
+    expect(result.projectData.pous).toHaveLength(1)
+    expect(result.projectData.pous[0].body).toMatchObject({
+      language: 'ld',
+      value: { rungs: [{ id: 'rung-1' }] },
+    })
+  })
+})

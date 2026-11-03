@@ -1,0 +1,329 @@
+/**
+ * Explain - This is a workaround to avoid the following error:
+ * The ```@dnd-kit``` package is not correctly asserted by the lint tool.
+ */
+
+import type { UniqueIdentifier } from '@dnd-kit/core'
+import {
+  closestCenter,
+  defaultDropAnimation,
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+} from '@dnd-kit/core'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
+import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import * as Portal from '@radix-ui/react-portal'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { v4 as uuidv4 } from 'uuid'
+
+import { useGraphicalFocus } from '../../../../../../hooks/use-graphical-focus'
+import { usePouSnapshot } from '../../../../../../hooks/use-pou-snapshot'
+import { ladderSelectors } from '../../../../../../hooks/use-store-selectors'
+import { useOpenPLCStore, useOpenPLCStoreApi } from '../../../../../../store'
+import { RungLadderState } from '../../../../../../store/slices/ladder'
+import { scheduleFlowWriteBack } from '../../../../../../store/slices/shared/flow-writeback'
+import { cn } from '../../../../../../utils/cn'
+import { hasLegacyInOutOutputHandle } from '../../../../../../utils/graphical/in-out-pin-rules'
+import { BlockNode, BlockNodeData } from '../../../../../_atoms/graphical-editor/ladder/block'
+import { CoilNode } from '../../../../../_atoms/graphical-editor/ladder/coil'
+import { ContactNode } from '../../../../../_atoms/graphical-editor/ladder/contact'
+import { BlockVariant } from '../../../../../_atoms/graphical-editor/types/block'
+import { CreateRung } from '../../../../../_molecules/graphical-editor/ladder/rung/create-rung'
+import { Rung } from '../../../../../_organisms/graphical-editor/ladder/rung'
+import { useBoundPou } from '../active-context'
+import BlockElement from '../elements/ladder/block'
+import CoilElement from '../elements/ladder/coil'
+import ContactElement from '../elements/ladder/contact'
+import { useGraphicalPlacement } from '../placement/placement-context'
+
+const EMPTY_DIVERGENCES: string[] = []
+
+export default function LadderEditor() {
+  const store = useOpenPLCStoreApi()
+  // Bound POU comes from the `GraphicalEditorActiveProvider` set up
+  // in the wrapper one level up.  Mirrors `FbdEditor` — see that
+  // file for the multi-mount rationale.
+  const pouName = useBoundPou()
+  // Pou-scoped subscription: immer's structural sharing keeps this flow's
+  // identity stable when other POUs' flows (or unrelated slices) change.
+  const flow = useOpenPLCStore((state) => state.ladderFlows.find((f) => f.name === pouName))
+  const ladderFlowActions = useOpenPLCStore((state) => state.ladderFlowActions)
+  const searchNodePosition = useOpenPLCStore((state) => state.searchNodePosition)
+  const blockElementModal = useOpenPLCStore((state) => state.modals['block-ladder-element'])
+  const contactElementModal = useOpenPLCStore((state) => state.modals['contact-ladder-element'])
+  const coilElementModal = useOpenPLCStore((state) => state.modals['coil-ladder-element'])
+  const pous = useOpenPLCStore((state) => state.project.data.pous)
+  const closeModal = useOpenPLCStore((state) => state.modalActions.closeModal)
+  const userLibraries = useOpenPLCStore((state) => state.libraries.user)
+  const isDebuggerVisible = useOpenPLCStore((state) => state.workspace.isDebuggerVisible)
+
+  const { captureAndPush } = usePouSnapshot()
+  const placement = useGraphicalPlacement()
+
+  const updateModelLadder = ladderSelectors.useUpdateModelLadder()
+
+  const rungs = useMemo(() => flow?.rungs ?? [], [flow?.rungs])
+  const flowUpdated = flow?.updated || false
+
+  const [activeId, setActiveId] = useState<UniqueIdentifier | null>(null)
+  const [activeItem, setActiveItem] = useState<RungLadderState | null>(null)
+
+  const nodeDivergences = useMemo(() => {
+    if (!flow) return EMPTY_DIVERGENCES
+
+    const divergences = []
+
+    for (const rung of flow.rungs) {
+      for (const node of rung.nodes) {
+        const variant = (node.data as BlockNodeData<BlockVariant>)?.variant
+        if (!variant) continue
+
+        const libMatch = userLibraries.find((lib) => lib.name === variant.name && lib.type === variant.type)
+        if (!libMatch) continue
+
+        const originalPou = pous.find((pou) => pou.name === libMatch.name)
+        if (!originalPou) continue
+
+        const originalVariables = originalPou.interface?.variables ?? []
+        const originalInOut = originalVariables.filter((variable) =>
+          ['input', 'output', 'inOut'].includes(variable.class || ''),
+        )
+
+        const currentVariables = variant.variables.filter(
+          (variable) =>
+            ['input', 'output', 'inOut'].includes(variable.class || '') &&
+            !['OUT', 'EN', 'ENO'].includes(variable.name),
+        )
+
+        const formatVariable = (variable: {
+          name: string
+          class?: string
+          type: { definition: string; value: string }
+        }) => `${variable.name}|${variable.class}|${variable.type.definition}|${variable.type.value?.toLowerCase()}`
+
+        if (originalPou.pouType === 'function') {
+          const outVariable = variant.variables.find((v) => v.name === 'OUT')
+          const outType = outVariable?.type?.value?.toUpperCase()
+          const returnType = originalPou.interface?.returnType?.toUpperCase()
+          if (!outType || !returnType || outType !== returnType) {
+            divergences.push(`${rung.id}:${node.id}`)
+            continue
+          }
+        }
+
+        const currentMap = new Map(currentVariables.map((variable) => [formatVariable(variable), true]))
+        const hasDivergence =
+          originalInOut?.length !== currentVariables.length ||
+          !originalInOut?.every((variable) => currentMap.has(formatVariable(variable))) ||
+          // The declarations can agree while the persisted GEOMETRY is stale: a rung saved
+          // before a VAR_IN_OUT pin became input-only still carries the pin's output side. The
+          // interface never changed, so the comparison above cannot see it.
+          hasLegacyInOutOutputHandle(node)
+
+        if (hasDivergence) {
+          divergences.push(`${rung.id}:${node.id}`)
+        }
+      }
+    }
+
+    return divergences.length > 0 ? divergences : EMPTY_DIVERGENCES
+  }, [flow?.rungs, userLibraries, pous])
+
+  const selectSearchedNode = useCallback(
+    ({ nodeId, rungId }: { nodeId: string; rungId?: string }) => {
+      const rung =
+        rungs.find((candidate) => candidate.id === rungId) ??
+        rungs.find((candidate) => candidate.nodes.some((node) => node.id === nodeId))
+      const node = rung?.nodes.find((candidate) => candidate.id === nodeId)
+      if (!rung || !node) return false
+
+      ladderFlowActions.setSelectedNodes({ nodes: [node], rungId: rung.id, editorName: pouName })
+      return true
+    },
+    [rungs, ladderFlowActions, pouName],
+  )
+  useGraphicalFocus(pouName, selectSearchedNode)
+
+  const scrollableRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (scrollableRef.current) {
+      scrollableRef.current.scrollTo({
+        top: searchNodePosition.y,
+        left: searchNodePosition.x,
+        behavior: 'smooth',
+      })
+    }
+  }, [searchNodePosition])
+
+  /**
+   * Queue the flow → project JSON write-back. The scheduler debounces it
+   * (edits inside the window coalesce), persists the raw flow object, and
+   * clears the `updated` flag; save paths flush it so a save landing inside
+   * the window still serializes the fresh body. Validation and the DOPE-477
+   * raw-object policy live in store/slices/shared/flow-writeback.ts.
+   */
+  useEffect(() => {
+    if (!flowUpdated) return
+    scheduleFlowWriteBack(store.getState, pouName, 'ld')
+  }, [store, flowUpdated])
+
+  const getRungPos = (rungId: UniqueIdentifier) => rungs.findIndex((rung) => rung.id === rungId)
+
+  const handleDragStart = (event: DragStartEvent) => {
+    if (isDebuggerVisible) return
+
+    const { active } = event
+    setActiveId(active.id)
+    setActiveItem(rungs.find((rung) => rung.id === active.id) || null)
+  }
+
+  const handleAddNewRung = () => {
+    if (isDebuggerVisible) return
+
+    captureAndPush(pouName)
+
+    const defaultViewport: [number, number] = [300, 100]
+
+    const rungIdToBeAdded = `rung_${pouName}_${uuidv4()}`
+
+    ladderFlowActions.startLadderRung({
+      editorName: pouName,
+      rungId: rungIdToBeAdded,
+      defaultBounds: defaultViewport,
+      reactFlowViewport: defaultViewport,
+    })
+    updateModelLadder({ openRung: { rungId: rungIdToBeAdded, open: true } })
+  }
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (isDebuggerVisible) {
+      setActiveId(null)
+      setActiveItem(null)
+      return
+    }
+
+    const { active, over } = event
+
+    setActiveId(null)
+    setActiveItem(null)
+
+    if (!flow) {
+      console.error('Flow is undefined')
+      return
+    }
+
+    if (!active || !over) {
+      console.error('Active or over is undefined')
+      return
+    }
+
+    if (active.id === over.id) return
+
+    const sourceIndex = getRungPos(active.id)
+    const destinationIndex = getRungPos(over.id)
+
+    if (
+      sourceIndex < 0 ||
+      destinationIndex < 0 ||
+      sourceIndex >= flow.rungs.length ||
+      destinationIndex >= flow.rungs.length
+    ) {
+      console.error('Invalid source or destination index')
+      return
+    }
+
+    const auxRungs = [...(flow?.rungs || [])]
+    // Store the original state for recovery
+    const originalRungs = [...auxRungs]
+    const [removed] = auxRungs.splice(sourceIndex, 1)
+    auxRungs.splice(destinationIndex, 0, removed)
+
+    try {
+      captureAndPush(pouName)
+      ladderFlowActions.setRungs({ editorName: pouName, rungs: auxRungs })
+    } catch (error) {
+      console.error('Failed to update rungs:', error)
+      // Recover the original state
+      ladderFlowActions.setRungs({ editorName: pouName, rungs: originalRungs })
+      // Notify the user
+      console.error('Failed to reorder rungs. The operation has been reverted.')
+    }
+  }
+
+  /**
+   * Handle the close of the modal
+   */
+  const handleModalClose = () => {
+    closeModal()
+  }
+
+  return (
+    <div
+      className='h-full w-full overflow-y-auto'
+      ref={scrollableRef}
+      style={{ scrollbarGutter: 'stable' }}
+      onContextMenu={placement?.handleContextMenu}
+    >
+      <div className='flex flex-1 flex-col gap-4 px-2'>
+        <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd} onDragStart={handleDragStart}>
+          <div
+            className={cn({
+              'h-fit rounded-lg border dark:border-neutral-800': rungs.length > 0,
+            })}
+          >
+            <SortableContext items={rungs} strategy={verticalListSortingStrategy}>
+              {rungs.map((rung, index) => (
+                <Rung
+                  key={rung.id}
+                  id={rung.id}
+                  index={index}
+                  rung={rung}
+                  className={cn({
+                    'opacity-35': activeId === rung.id,
+                  })}
+                  nodeDivergences={nodeDivergences}
+                  isDebuggerActive={isDebuggerVisible}
+                />
+              ))}
+            </SortableContext>
+            {createPortal(
+              <DragOverlay dropAnimation={defaultDropAnimation} modifiers={[restrictToParentElement]}>
+                {activeId && activeItem ? (
+                  <Rung key={activeItem.id} id={activeItem.id} rung={activeItem} index={-1} />
+                ) : null}
+              </DragOverlay>,
+              document.body,
+            )}
+          </div>
+        </DndContext>
+        <CreateRung onClick={handleAddNewRung} />
+        <Portal.Root>
+          {blockElementModal?.open && (
+            <BlockElement
+              onClose={handleModalClose}
+              selectedNode={blockElementModal.data as BlockNode<BlockVariant>}
+              isOpen={blockElementModal.open}
+            />
+          )}
+          {contactElementModal?.open && (
+            <ContactElement
+              onClose={handleModalClose}
+              node={contactElementModal.data as ContactNode}
+              isOpen={contactElementModal.open}
+            />
+          )}
+          {coilElementModal?.open && (
+            <CoilElement
+              onClose={handleModalClose}
+              node={coilElementModal.data as CoilNode}
+              isOpen={coilElementModal.open}
+            />
+          )}
+        </Portal.Root>
+      </div>
+    </div>
+  )
+}

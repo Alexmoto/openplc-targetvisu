@@ -1,0 +1,240 @@
+import type {
+  Architecture,
+  DebugTreeNode,
+  FbInstanceInfo,
+  Platform,
+  PLCInstance,
+  PlcLogs,
+  PLCPou,
+} from '../../../../middleware/shared/ports/types'
+
+// ---------------------------------------------------------------------------
+// PLC Log Filters
+// ---------------------------------------------------------------------------
+
+export type PlcFilters = {
+  levels: {
+    debug: boolean
+    info: boolean
+    warning: boolean
+    error: boolean
+  }
+  searchTerm: string
+  timestampFormat: 'full' | 'time' | 'none'
+}
+
+// ---------------------------------------------------------------------------
+// Project tree
+// ---------------------------------------------------------------------------
+
+export type WorkspaceProjectTreeLeafType =
+  | 'function'
+  | 'function-block'
+  | 'program'
+  | 'data-type'
+  | 'global-variable-list'
+  | 'device'
+  | 'resource'
+  | 'targetvisu'
+  | 'server'
+  | 'remote-device'
+  | 'vendor-screen'
+  | 'package-manager'
+  | 'library-manager'
+  | 'library-manifest'
+  | 'user-management'
+  | 'persistent-storage'
+  | 'ethercat-device'
+  | 'ethercat-module'
+  | null
+
+// ---------------------------------------------------------------------------
+// System configuration
+// ---------------------------------------------------------------------------
+
+export type SystemConfigs = {
+  OS: Platform
+  arch: Architecture
+  shouldUseDarkMode: boolean
+  isWindowMaximized: boolean
+}
+
+// ---------------------------------------------------------------------------
+// Workspace State (superset of both editor and web)
+// ---------------------------------------------------------------------------
+
+export type WorkspaceState = {
+  workspace: {
+    editingState: 'save-request' | 'saved' | 'unsaved' | 'initial-state'
+    systemConfigs: SystemConfigs
+    recent: Array<{ lastOpenedAt: string; createdAt: string; path: string; name: string }>
+    isCollapsed: boolean
+    isModalOpen: Array<{ modalName: string; modalState: boolean }>
+    discardChanges: boolean
+    selectedProjectTreeLeaf: {
+      label: string
+      type: WorkspaceProjectTreeLeafType
+    }
+    close: {
+      window: boolean
+      app: boolean
+    }
+    // PLC Logs
+    isPlcLogsVisible: boolean
+    plcLogs: PlcLogs
+    plcLogsLastId: number | null
+    plcFilters: PlcFilters
+    // Debug state (union of editor + web fields)
+    isDebuggerVisible: boolean
+    debuggerTargetIp: string | null
+    debugCContent: string | null
+    debugVariableIndexes: Map<string, number>
+    debugBoolValues: Map<string, string>
+    debugNonBoolValues: Map<string, string>
+    debugForcedVariables: Map<string, boolean>
+    debugTick: number
+    debugVariableTree: Map<string, DebugTreeNode>
+    debugExpandedNodes: Map<string, boolean>
+    fbDebugInstances: Map<string, FbInstanceInfo[]>
+    fbSelectedInstance: Map<string, string>
+    /**
+     * The generated program the CURRENT debug session is running,
+     * when the session runs something the project itself does not
+     * contain.
+     *
+     * Set only by the library-debug flow, which compiles a harness
+     * program (see `composeLibraryDebugHarness`) declaring one
+     * instance of every block in the library.  That program exists
+     * only for the life of the session: writing it into `project.data`
+     * would fight each editor's dirty tracking and could be persisted
+     * to disk on the next save.
+     *
+     * Consumers ADD `programPou` to the project's own POU list rather
+     * than replacing it, so a debug flag the author ticks mid-session
+     * still takes effect.  `null` for an ordinary PLC project, whose
+     * session runs the project's own programs.
+     */
+    debugHarness: { programPou: PLCPou; instances: PLCInstance[] } | null
+    debugLocalMd5: string | null
+    debugGraphList: string[]
+    debugDataStale: boolean
+    debugMd5Mismatch: { runtimeMd5: string; localMd5: string } | null
+    /** Target's native byte order for multi-byte variable values on
+     *  the wire.  Detected from the 0xDEAD sentinel in the MD5
+     *  response: LE target writes the trailer as `[0xAD, 0xDE]`, BE
+     *  target writes `[0xDE, 0xAD]`.  The editor's internal codecs
+     *  always produce / consume little-endian bytes; the swap layer
+     *  at the read / write boundaries flips on BE targets only.
+     *
+     *  Defaults to `'le'` because every shipped target today is LE.
+     *  MD5 verification runs before any force / read transaction so
+     *  the value is correct by the time any swap path executes. */
+    debugTargetEndian: 'le' | 'be'
+    // Project loading state
+    isProjectLoading: boolean
+    projectLoadingMessage: string
+    /**
+     * Whether the viewer has permission to persist changes to the open
+     * project (e.g. they own it or have write access).  Only gates
+     * operations that write to the backend — save, commit, branch
+     * create/delete, stash, discard.  In-memory editing, simulation,
+     * and compilation are always allowed: a viewer of a public project
+     * works on a local copy and just can't push it back.  Set by
+     * `handleOpenProjectResponse` from the backend `canEdit` flag;
+     * absent (desktop editor / dev-local) ⇒ `true`.  Reset to `true`
+     * on project close.
+     */
+    canEdit: boolean
+    /**
+     * Whether a build or debug saves the whole project first. False only on a
+     * partner session that asked for it off; reset to true on project close.
+     */
+    autoSaveOnBuild: boolean
+    /**
+     * Whether the open project was retrieved from a device and has no location
+     * the user chose yet.
+     *
+     * It lives in a scratch directory, so `meta.path` is a real writable
+     * directory and everything that derives a path from it keeps working --
+     * including the pre-build flush, which is why a retrieved project can still
+     * be compiled and uploaded. What this gates is the USER-initiated save:
+     * writing to scratch and calling it saved would tell someone their work is
+     * safe when it is somewhere temporary. Save As clears the flag.
+     *
+     * Reset to `false` on project close and on any normally opened project.
+     */
+    isEphemeralProject: boolean
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Workspace Response
+// ---------------------------------------------------------------------------
+
+export type WorkspaceResponse = {
+  ok: boolean
+  title?: string
+  message?: string
+}
+
+// ---------------------------------------------------------------------------
+// Workspace Actions (superset of both editor and web)
+// ---------------------------------------------------------------------------
+
+export type WorkspaceActions = {
+  setEditingState: (editingState: WorkspaceState['workspace']['editingState']) => void
+  setRecent: (recent: WorkspaceState['workspace']['recent']) => void
+  setSystemConfigs: (config: Partial<SystemConfigs>) => void
+  setCloseWindow: (value: boolean) => void
+  setCloseApp: (value: boolean) => void
+  switchAppTheme: () => void
+  toggleMaximizedWindow: () => void
+  toggleCollapse: () => void
+  toggleDiscardChanges: () => void
+  setModalOpen: (modalName: string, modalState: boolean) => void
+  setSelectedProjectTreeLeaf: (leaf: { label: string; type: WorkspaceProjectTreeLeafType }) => void
+  clearWorkspace: () => void
+  // PLC Logs
+  setPlcLogsVisible: (isVisible: boolean) => void
+  setPlcLogs: (logs: PlcLogs) => void
+  setPlcLogsLastId: (lastId: number | null) => void
+  appendPlcLogs: (newLogs: PlcLogs) => void
+  clearPlcLogs: () => void
+  setPlcLevelFilter: (level: 'debug' | 'info' | 'warning' | 'error', enabled: boolean) => void
+  setPlcSearchTerm: (term: string) => void
+  setPlcTimestampFormat: (format: 'full' | 'time' | 'none') => void
+  // Debug actions
+  setDebuggerVisible: (isVisible: boolean) => void
+  setDebuggerTargetIp: (targetIp: string | null) => void
+  setDebugCContent: (content: string | null) => void
+  setDebugVariableIndexes: (indexes: Map<string, number>) => void
+  /** Merges polled values into both maps in a single store commit per poll cycle. */
+  setDebugValues: (values: { boolValues?: Map<string, string>; nonBoolValues?: Map<string, string> }) => void
+  setDebugForcedVariables: (forced: Map<string, boolean>) => void
+  setDebugTick: (tick: number) => void
+  setDebugVariableTree: (tree: Map<string, DebugTreeNode>) => void
+  setDebugExpandedNodes: (expandedNodes: Map<string, boolean>) => void
+  toggleDebugExpandedNode: (compositeKey: string) => void
+  setFbDebugInstances: (instances: Map<string, FbInstanceInfo[]>) => void
+  /** Install (or clear, with `null`) the session's harness overlay. */
+  setDebugHarness: (harness: { programPou: PLCPou; instances: PLCInstance[] } | null) => void
+  setFbSelectedInstance: (fbTypeName: string, key: string) => void
+  setDebugLocalMd5: (md5: string | null) => void
+  setDebugGraphList: (list: string[]) => void
+  setDebugDataStale: (stale: boolean) => void
+  setDebugMd5Mismatch: (mismatch: { runtimeMd5: string; localMd5: string } | null) => void
+  setDebugTargetEndian: (endian: 'le' | 'be') => void
+  clearDebugState: () => void
+  clearFbDebugContext: () => void
+  removeDebugVariable: (compositeKey: string) => void
+  // Project loading
+  setProjectLoading: (isLoading: boolean, message?: string) => void
+  // Persist-permission flag (backend write access on the open project)
+  setCanEdit: (value: boolean) => void
+  setAutoSaveOnBuild: (value: boolean) => void
+  setIsEphemeralProject: (value: boolean) => void
+}
+
+export type WorkspaceSlice = WorkspaceState & {
+  workspaceActions: WorkspaceActions
+}

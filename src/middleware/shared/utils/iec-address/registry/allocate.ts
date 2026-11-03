@@ -1,0 +1,143 @@
+/**
+ * Deterministic address allocator.
+ *
+ * Given the registered consumers, assigns every channel a concrete IEC
+ * address. Two passes:
+ *   1. Reserve `pinned` channels at their literal address (fixed hardware).
+ *   2. Allocate the rest, lowest-free-index first, per independent prefix
+ *      space.
+ *
+ * Besides the assignments, the result carries `slotCounts`: how many slots
+ * each prefix space ended up needing. It is the same reservation data the
+ * two passes already build, so exposing it costs nothing, and it is what
+ * sizes the runtime's I/O image.
+ *
+ * Order is stable (consumer `order` then `id`, channels in declaration
+ * order) so the output is reproducible across sessions — re-opening a
+ * project never gratuitously renumbers. Non-pinned channels never collide
+ * (they take the lowest FREE slot); only two pinned channels on the same
+ * literal address produce a conflict, reported first-wins.
+ */
+
+import { formatAddress, parseAddress, prefixOf } from './address-space'
+import type { AddressConflict, AllocateOptions, AllocationResult, RegistryConsumer } from './types'
+
+/** Stable, unambiguous map key for a channel assignment. JSON-encoding the
+ *  pair means ids may contain any characters without risking a collision. */
+export function channelKey(consumerId: string, channelId: string): string {
+  return JSON.stringify([consumerId, channelId])
+}
+
+/** Consumers in deterministic allocation order (does not mutate input). */
+function orderedConsumers(consumers: readonly RegistryConsumer[]): RegistryConsumer[] {
+  return [...consumers].sort((a, b) => a.order - b.order || a.id.localeCompare(b.id))
+}
+
+/** Lowest non-negative integer not present in `set`, searching from `from`. */
+function lowestFree(set: ReadonlySet<number>, from: number): number {
+  let i = from
+  while (set.has(i)) i++
+  return i
+}
+
+/** First assignment key already resolved to `address` (the conflict winner). */
+function firstKeyAt(assignments: Record<string, string>, address: string): string {
+  for (const [key, addr] of Object.entries(assignments)) {
+    if (addr === address) return key
+  }
+  /* istanbul ignore next -- unreachable: only called after an address was
+     already recorded in `assignments` during pass 1 */
+  return ''
+}
+
+export function allocateAddresses(
+  consumers: readonly RegistryConsumer[],
+  options: AllocateOptions = {},
+): AllocationResult {
+  const { activeKinds } = options
+  const ordered = orderedConsumers(consumers).filter((c) => !activeKinds || activeKinds.has(c.kind))
+  const assignments: Record<string, string> = {}
+  const conflicts: AddressConflict[] = []
+  // prefix -> set of claimed linear slot indices
+  const usedByPrefix = new Map<string, Set<number>>()
+  const conflictByAddress = new Map<string, AddressConflict>()
+
+  const used = (prefix: string): Set<number> => {
+    let set = usedByPrefix.get(prefix)
+    if (!set) {
+      set = new Set<number>()
+      usedByPrefix.set(prefix, set)
+    }
+    return set
+  }
+
+  // Pass 1 — reserve pinned (fixed) channels.
+  for (const consumer of ordered) {
+    for (const channel of consumer.channels) {
+      if (!channel.pinned) continue
+      const key = channelKey(consumer.id, channel.channelId)
+      const parsed = parseAddress(channel.pinned)
+      // Unparseable pinned addresses are honoured verbatim but can't take
+      // part in the linear reservation — record the assignment and move on.
+      if (!parsed) {
+        assignments[key] = channel.pinned
+        continue
+      }
+      const set = used(prefixOf(parsed.cls))
+      if (set.has(parsed.linear)) {
+        const existing = conflictByAddress.get(channel.pinned)
+        if (existing) {
+          existing.keys.push(key)
+        } else {
+          const report: AddressConflict = {
+            address: channel.pinned,
+            keys: [firstKeyAt(assignments, channel.pinned), key],
+          }
+          conflictByAddress.set(channel.pinned, report)
+          conflicts.push(report)
+        }
+        // Loser still records the (colliding) address it asked for.
+        assignments[key] = channel.pinned
+        continue
+      }
+      set.add(parsed.linear)
+      assignments[key] = channel.pinned
+    }
+  }
+
+  // Pass 2 — allocate non-pinned channels at the lowest free slot. Slots are
+  // only added here, so each prefix's lowest free slot never moves back and
+  // the search resumes from the last one instead of from 0.
+  const nextFreeByPrefix = new Map<string, number>()
+  for (const consumer of ordered) {
+    for (const channel of consumer.channels) {
+      if (channel.pinned) continue
+      const prefix = prefixOf(channel.class)
+      const set = used(prefix)
+      const linear = lowestFree(set, nextFreeByPrefix.get(prefix) ?? 0)
+      nextFreeByPrefix.set(prefix, linear + 1)
+      set.add(linear)
+      assignments[channelKey(consumer.id, channel.channelId)] = formatAddress(channel.class, linear)
+    }
+  }
+
+  // Per-prefix high-water mark, from the reservation sets already built
+  // above. `usedByPrefix` never holds an empty set (every `used()` call is
+  // followed by an `add`, or by a conflict on an already-populated set), but
+  // the guard keeps an absent prefix indistinguishable from a zero one.
+  // Iterated rather than `Math.max(...set)`: a space may legitimately hold
+  // tens of thousands of slots, and spreading that many arguments is an
+  // engine limit away from throwing.
+  const slotCounts: Record<string, number> = {}
+  for (const [prefix, set] of usedByPrefix) {
+    /* istanbul ignore next -- unreachable: see the invariant above */
+    if (set.size === 0) continue
+    let highest = 0
+    for (const linear of set) {
+      if (linear > highest) highest = linear
+    }
+    slotCounts[prefix] = highest + 1
+  }
+
+  return { assignments, conflicts, slotCounts }
+}

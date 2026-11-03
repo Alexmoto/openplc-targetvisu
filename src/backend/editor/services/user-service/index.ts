@@ -1,0 +1,359 @@
+import { getErrorMessage } from '@root/frontend/utils/get-error-message'
+import { exec } from 'child_process'
+import { app } from 'electron'
+import { access, constants, mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
+import { basename, join } from 'path'
+import { promisify } from 'util'
+
+import { reconcileArduinoCliConfig } from './data/arduino-cli-config'
+import {
+  buildArduinoCliConfig,
+  defaultSketchbookLibrariesPath,
+  HISTORY_DATA,
+  managedArduinoRoot,
+  SETTINGS_DATA,
+} from './data/types'
+import type { ArduinoListOutput } from './types'
+
+/**
+ * UserService class responsible for user settings and history management.
+ * This class is a singleton and should be instantiated only once during the application lifecycle.
+ * For now it is used as a static class, although it isn't recommended to use static classes in TypeScript.
+ * This approach is taken to avoid the need for a singleton instance and to leave room for future changes in the class structure.
+ */
+class UserService {
+  /**
+   * The scaffolding run, started in the constructor and awaited by `initialize`.
+   *
+   * Held so the two entry points share ONE run. `initialize()` used to start a
+   * second one, which duplicated every "file already exists" warning and, worse,
+   * spawned `arduino-cli core list` and `lib list` twice on every single CLI
+   * invocation — four processes to answer `--help`.
+   */
+  readonly #ready: Promise<void>
+
+  constructor() {
+    this.#ready = this.#initializeUserSettingsAndHistory()
+    // The GUI never awaits it. Attaching a handler here keeps a scaffolding
+    // failure from surfacing as an unhandled rejection; `#ready` itself still
+    // rejects, so an `initialize()` caller sees the error.
+    void this.#ready.catch(() => undefined)
+  }
+
+  /**
+   * The same scaffolding the constructor starts, but awaitable.
+   *
+   * The constructor is fire-and-forget, which is harmless for the GUI — a window
+   * takes far longer to appear than these few files take to create. A CLI has no
+   * such gap: it can reach the compiler in the same tick, and the compiler reads
+   * `User/Runtime/arduino-core-control.json` eagerly. On a machine where the
+   * editor had run before, the files already existed and nothing showed; in a
+   * fresh CI container the compile failed with a bare
+   * `ENOENT … arduino-core-control.json`.
+   */
+  async initialize(): Promise<void> {
+    await this.#ready
+  }
+
+  /**
+   * Static methods and properties.
+   */
+
+  static DEFAULT_SETTINGS = SETTINGS_DATA
+
+  static DEFAULT_HISTORY = HISTORY_DATA
+
+  static async createDirectoryIfNotExists(path: string): Promise<void> {
+    /**
+     * The access() method checks the existence of the file or directory at the specified path.
+     * If the file or directory exists, the method resolves successfully.
+     */
+    try {
+      await access(path, constants.F_OK)
+    } catch {
+      try {
+        await mkdir(path, { recursive: true })
+      } catch (err) {
+        // If the error is due to the directory already existing, log a warning and continue.
+        if (err instanceof Error && err.message.includes('EEXIST')) {
+          console.warn(`Directory already exists at ${path}.\nSkipping creation.`)
+        } else if (err instanceof Error) {
+          console.error(`Error creating directory at ${path}: ${getErrorMessage(err)}`)
+        } else {
+          console.error(`Error creating directory at ${path}: ${getErrorMessage(err)}`)
+        }
+      }
+    }
+  }
+
+  static async createJSONFileIfNotExists(filePath: string, data: object): Promise<void> {
+    try {
+      await writeFile(filePath, JSON.stringify(data, null, 2), { flag: 'wx' })
+    } catch (err) {
+      // If the error is due to the file already existing, log a warning and continue.
+      if (err instanceof Error && (err as NodeJS.ErrnoException).code === 'EEXIST') {
+        console.warn(`File already exists at ${filePath}.\nSkipping creation.`)
+        return
+      } else if (err instanceof Error) {
+        console.error(`Error creating file at ${filePath}: ${getErrorMessage(err)}`)
+        throw new Error(`Failed to create file at ${filePath}: ${getErrorMessage(err)}`)
+      } else {
+        console.error(`Error creating file at ${filePath}: ${getErrorMessage(err)}`)
+        throw new Error(`Failed to create file at ${filePath}: ${getErrorMessage(err)}`)
+      }
+    }
+  }
+
+  static async deleteFile(filePath: string): Promise<void> {
+    try {
+      await rm(filePath, { recursive: true, force: true })
+    } catch (err) {
+      console.error(`Error deleting file at ${filePath}: ${getErrorMessage(err)}`)
+      throw new Error(`Failed to delete file at ${filePath}: ${getErrorMessage(err)}`)
+    }
+  }
+
+  static async renameFile(
+    oldFilePath: string,
+    newFilePath: string,
+  ): Promise<{
+    success: boolean
+    error?: {
+      title: string
+      description: string
+      error: Error
+    }
+    data?: { filePath: string }
+  }> {
+    const newFileName = basename(newFilePath)
+    try {
+      await rename(oldFilePath, newFilePath)
+      return { success: true, data: { filePath: newFilePath } }
+    } catch (err) {
+      console.error(`Error renaming file at ${oldFilePath} to ${newFileName}: ${getErrorMessage(err)}`)
+      return {
+        success: false,
+        error: { title: 'File Rename Error', description: 'Failed to rename file', error: err as Error },
+      }
+    }
+  }
+
+  /**
+   * -----------------------------------------------------------------------
+   */
+
+  /**
+   * Checks if the user base settings folder exists and creates it if it doesn't.
+   * Also creates a user settings file with default values if it doesn't exist.
+   *
+   * @returns {Promise<void>} Resolves when the user base settings folder and file are ready.
+   */
+  async #checkIfUserBaseSettingsExists(): Promise<void> {
+    const pathToUserDataFolder = join(app.getPath('userData'), 'User')
+    const pathToUserDataFile = join(pathToUserDataFolder, 'settings.json')
+
+    await UserService.createDirectoryIfNotExists(pathToUserDataFolder)
+    await UserService.createJSONFileIfNotExists(pathToUserDataFile, UserService.DEFAULT_SETTINGS)
+  }
+
+  async #checkIfLogFolderExists(): Promise<void> {
+    const pathToLogFolder = join(app.getPath('userData'), 'logs')
+    await UserService.createDirectoryIfNotExists(pathToLogFolder)
+  }
+
+  /**
+   * Checks if the user history folder exists and creates it if it doesn't.
+   * Also creates a user history file with default values if it doesn't exist.
+   *
+   * @returns {Promise<void>} Resolves when the user history folder and file are ready.
+   */
+  async #checkIfUserHistoryFolderExists(): Promise<void> {
+    const pathToUserHistoryFolder = join(app.getPath('userData'), 'User', 'History')
+    const pathToUserProjectInfoFile = join(pathToUserHistoryFolder, 'projects.json')
+    const pathToUserLibraryInfoFile = join(pathToUserHistoryFolder, 'libraries.json')
+
+    await UserService.createDirectoryIfNotExists(pathToUserHistoryFolder)
+    await UserService.createJSONFileIfNotExists(pathToUserProjectInfoFile, UserService.DEFAULT_HISTORY.projects)
+    await UserService.createJSONFileIfNotExists(pathToUserLibraryInfoFile, UserService.DEFAULT_HISTORY.libraries)
+  }
+
+  /**
+   * Create the Arduino CLI configuration file, or bring an existing one up to
+   * date with what the editor ships.
+   *
+   * This used to write with `{ flag: 'wx' }` and swallow `EEXIST`, which made
+   * the file effectively write-once: an install that had launched an older
+   * build kept a stale config forever, and the only fix was deleting it by
+   * hand. Two things went stale that way — board-manager URLs added to
+   * board-manager URLs added to the shipped template never reached existing
+   * users, and `output.no_color` stayed
+   * on, which would keep the console monochrome even though it renders SGR
+   * colour itself now.
+   *
+   * Merge, never overwrite: users add their own indexes and change other
+   * settings in this file, and clobbering it would silently discard them.
+   * See `reconcileArduinoCliConfig` for the (deliberately narrow) rules.
+   */
+  /**
+   * The sketchbook libraries folder arduino-cli would have used by default, and
+   * which the Arduino IDE uses too. Read-only for us: it is where a user's own
+   * libraries live, so that a C++ block can still call the display driver or the
+   * W5500 stack they installed through the IDE.
+   *
+   * Platform split is arduino-cli's own: `{HOME}/Arduino` on Linux,
+   * `{HOME}/Documents/Arduino` on macOS, `{DOCUMENTS}/Arduino` on Windows, where
+   * Documents can be redirected and only Electron knows where to.
+   *
+   * A sketchbook the user moved in the IDE's preferences, or an IDE confined by
+   * snap or flatpak, is not found here. Making that configurable is its own
+   * piece of work; the default covers a stock install.
+   */
+  static defaultUserLibrariesPath(): string {
+    return defaultSketchbookLibrariesPath(app.getPath('documents'))
+  }
+
+  async #checkIfArduinoCliConfigExists(): Promise<void> {
+    const pathToArduinoCliConfig = join(app.getPath('userData'), 'User', 'arduino-cli.yaml')
+    const shipped = buildArduinoCliConfig(
+      managedArduinoRoot(app.getPath('userData')),
+      UserService.defaultUserLibrariesPath(),
+    )
+
+    try {
+      await writeFile(pathToArduinoCliConfig, shipped, { flag: 'wx' })
+      return
+    } catch (err) {
+      if (!(err instanceof Error && err.message.includes('EEXIST'))) {
+        console.error(`Error creating Arduino CLI config at ${pathToArduinoCliConfig}: ${getErrorMessage(err)}`)
+        return
+      }
+    }
+
+    // File already exists — reconcile it with what we ship.
+    try {
+      const existing = await readFile(pathToArduinoCliConfig, 'utf-8')
+      const updated = reconcileArduinoCliConfig(existing, shipped)
+      if (!updated) return
+
+      // Write via a sibling temp file and rename over the original. This runs
+      // on every start against a file the user owns and arduino-cli must be
+      // able to parse; a crash midway through a direct write would leave it
+      // truncated and break every build until the user deleted it by hand.
+      // `rename` within the same directory is atomic, so the config is either
+      // the old one or the new one, never half of each.
+      const tempPath = `${pathToArduinoCliConfig}.tmp`
+      await writeFile(tempPath, updated, 'utf-8')
+      await rename(tempPath, pathToArduinoCliConfig)
+      console.warn(`Updated Arduino CLI config at ${pathToArduinoCliConfig}.`)
+    } catch (err) {
+      console.error(`Error updating Arduino CLI config at ${pathToArduinoCliConfig}: ${getErrorMessage(err)}`)
+    }
+  }
+
+  async #executeArduinoCliCommand(command: string): Promise<{ stderr: string; stdout: string }> {
+    const developmentMode = process.env.NODE_ENV === 'development'
+    const executeCommand = promisify(exec)
+
+    const platformSpecificBinaryPath = join(process.platform, process.arch)
+
+    let binaryPath = join(
+      developmentMode ? process.cwd() : process.resourcesPath,
+      developmentMode ? 'resources' : '',
+      'bin',
+      developmentMode ? platformSpecificBinaryPath : '',
+      'arduino-cli',
+    )
+
+    if (process.platform === 'win32') {
+      binaryPath = `${binaryPath}.exe`
+    }
+
+    return executeCommand(`"${binaryPath}" ${command}`)
+  }
+
+  /**
+   * Checks if the Core List file exists and creates it if it doesn't.
+   * TODO: This function must be refactored.
+   * - Must validate if this implementation for the core list file is correct.
+   */
+
+  async #checkIfArduinoCoreControlFileExists(): Promise<void> {
+    const pathToRuntimeFolder = join(app.getPath('userData'), 'User', 'Runtime')
+    const pathToArduinoCoreControlFile = join(pathToRuntimeFolder, 'arduino-core-control.json')
+
+    const { stderr, stdout } = await this.#executeArduinoCliCommand('core list --json')
+    if (stderr) {
+      console.error(`Error listing cores: ${String(stderr)}`)
+      return
+    }
+
+    const coreListOutput = JSON.parse(stdout) as ArduinoListOutput['core']
+
+    const installedCoresFromListOutput = coreListOutput.platforms.map((core) => ({
+      [core.id]: core.installed_version,
+    }))
+
+    await UserService.createDirectoryIfNotExists(pathToRuntimeFolder)
+    await writeFile(pathToArduinoCoreControlFile, JSON.stringify(installedCoresFromListOutput, null, 2), { flag: 'w' })
+
+    // This is a legacy file that is no longer used, should be removed in the next major release!!!
+    const pathToLegacyHals = join(pathToRuntimeFolder, 'hals.json')
+    await rm(pathToLegacyHals, { recursive: true, force: true })
+  }
+
+  async #checkIfArduinoLibraryControlFileExists() {
+    const pathToRuntimeFolder = join(app.getPath('userData'), 'User', 'Runtime')
+    const pathToArduinoLibraryControlFile = join(pathToRuntimeFolder, 'arduino-library-control.json')
+
+    const { stderr, stdout } = await this.#executeArduinoCliCommand('lib list --json')
+    if (stderr) {
+      console.error(`Error listing libraries: ${String(stderr)}`)
+      return
+    }
+
+    const libraryListOutput = JSON.parse(stdout) as ArduinoListOutput['library']
+
+    const installedLibrariesFromListOutput = libraryListOutput.installed_libraries.map(({ library }) => ({
+      [library.name]: library.version,
+    }))
+
+    await UserService.createDirectoryIfNotExists(pathToRuntimeFolder)
+    await writeFile(pathToArduinoLibraryControlFile, JSON.stringify(installedLibrariesFromListOutput, null, 2), {
+      flag: 'w',
+    })
+  }
+  /**
+   * Initializes user settings and history by checking the relevant folders and files.
+   * This method should be called during the application startup process.
+   *
+   * @returns {Promise<void>} Resolves when all setup checks are complete.
+   */
+  async #initializeUserSettingsAndHistory(): Promise<void> {
+    await this.#checkIfUserBaseSettingsExists()
+    await this.#checkIfLogFolderExists()
+    await this.#checkIfUserHistoryFolderExists()
+    await this.#checkIfArduinoCliConfigExists()
+    // The last two SHELL OUT to arduino-cli, so they fail on a machine where it
+    // is not installed — and they are the least essential steps here: they
+    // refresh a cache of which cores and libraries arduino-cli has. Losing that
+    // degrades the install; it does not stop the editor, and it must not stop a
+    // command that never compiles anything (`--version`, `devices`, a debug
+    // session over websocket). The GUI already behaved this way by accident,
+    // its rejection swallowed by a fire-and-forget constructor; making it
+    // explicit is what lets the CLI await this call without inheriting a fatal
+    // dependency on a compiler toolchain it may not need.
+    await this.#tolerate('refresh the installed-core list', () => this.#checkIfArduinoCoreControlFileExists())
+    await this.#tolerate('refresh the installed-library list', () => this.#checkIfArduinoLibraryControlFileExists())
+  }
+
+  /** Run a non-essential scaffolding step; report a failure without raising it. */
+  async #tolerate(what: string, step: () => Promise<void>): Promise<void> {
+    try {
+      await step()
+    } catch (err) {
+      console.warn(`Could not ${what}: ${getErrorMessage(err)}`)
+    }
+  }
+}
+
+export { UserService }

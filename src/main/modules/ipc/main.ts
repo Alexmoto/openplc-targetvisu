@@ -1,0 +1,3558 @@
+import {
+  fetchPlanCaption as fetchEdgePlanCaption,
+  fetchUser as fetchEdgeUser,
+  isEncryptionAvailable,
+  signIn as signInToEdge,
+  signOut as signOutOfEdge,
+} from '@root/backend/editor/edge-account/edge-account-service'
+import {
+  type AiStreamHandle,
+  type AiStreamSink,
+  createConversation,
+  deleteConversation,
+  type EdgeAiResult,
+  fetchAiCredits,
+  fetchAiEntitlements,
+  fetchAiUsage,
+  getConversation,
+  listConversations,
+  renameConversation,
+  sendAiTelemetry,
+  streamAiChat,
+  streamAiCompletion,
+  warmAi,
+} from '@root/backend/editor/edge-ai'
+import { closeEditSession, heartbeatEditSession, openEditSession } from '@root/backend/editor/edge-edit-sessions'
+import { listCloudFolders, uploadProjectToCloud } from '@root/backend/editor/edge-project-upload'
+import {
+  listCloudProjectsInFolder,
+  listRecentCloudProjects,
+  readCloudProject,
+  saveCloudFile,
+  saveCloudProject,
+} from '@root/backend/editor/edge-projects'
+import {
+  applyStash,
+  createBranch,
+  createCommit,
+  createStash,
+  deleteBranch,
+  discardChanges,
+  dropStash,
+  getBranchDiffWithBase,
+  getChanges,
+  getCommitFiles,
+  listBranches,
+  listCommits,
+  listStashes,
+  mergeBranches,
+  popStash,
+  previewSwitchCarry,
+  restoreCommit,
+  switchBranch,
+} from '@root/backend/editor/edge-version-control'
+import { EsiProjectFiles } from '@root/backend/editor/ethercat'
+import { createDesktopCatalogTransport } from '@root/backend/editor/library-manager/desktop-catalog-transport'
+import { resolveBuildWorkspace } from '@root/backend/editor/project/cloud-build-workspace'
+import { describeRetrievedLibraries } from '@root/backend/editor/project/describe-retrieved-libraries'
+import {
+  materializeRetrievedProject,
+  pruneRetrievedProjects,
+  RETAINED_RETRIEVALS,
+} from '@root/backend/editor/project/materialize-retrieved-project'
+import { isWebUrl } from '@root/backend/editor/utils/is-web-url'
+import type {
+  DebugAnchorResult,
+  DebugDeviceIdResult,
+  DebugStatusResult,
+  DeviceDebugChannel,
+  DeviceModbusTransport,
+  PlcControlResult,
+} from '@root/backend/shared/debug/types'
+import { runEsiParseOp } from '@root/backend/shared/ethercat/esi-parse-ops'
+import { listPublicLibraries, PublicLibrarySchema } from '@root/backend/shared/library/public-catalog-client'
+import type { SnapshotMetadata } from '@root/backend/shared/project/project-snapshot-archive'
+import { PlcRuntimeState } from '@root/backend/shared/simulator/types'
+import { PLCProjectData } from '@root/backend/shared/types/PLC/open-plc'
+import { getErrorMessage } from '@root/frontend/utils/get-error-message'
+import type { CompileProgramIpcArgs } from '@root/middleware/adapters/editor/compile-program-flow'
+import type { CompileLibraryIpcArgs } from '@root/middleware/adapters/editor/compiler-adapter'
+import { RuntimeLogEntry } from '@root/middleware/shared/ports'
+import type { AITelemetryEventName } from '@root/middleware/shared/ports/ai-port'
+import type { DeviceLicenseReport, DeviceLicenseRequest } from '@root/middleware/shared/ports/device-port'
+import type { EdgeSignInOutcome, EdgeUserRead } from '@root/middleware/shared/ports/edge-account-port'
+import type { EditSessionBeat, EditSessionOpened } from '@root/middleware/shared/ports/edit-session-port'
+import type { EsiParseOp } from '@root/middleware/shared/ports/esi-repository-mechanisms'
+import type {
+  EtherCATRuntimeStatusResponse,
+  EtherCATScanRequest,
+  EtherCATScanResponse,
+  EtherCATServiceStatusResponse,
+  EtherCATTestRequest,
+  EtherCATTestResponse,
+  EtherCATValidateRequest,
+  EtherCATValidateResponse,
+  NetworkInterface,
+} from '@root/middleware/shared/ports/ethercat-types'
+import type {
+  CloudFoldersResult,
+  CloudProjectsResult,
+  RawProjectFiles,
+  UploadProjectResult,
+} from '@root/middleware/shared/ports/project-port'
+import { WriteProjectFilesSchema } from '@root/middleware/shared/ports/project-port'
+import type {
+  ListPublicLibrariesArgs,
+  ListPublicLibrariesResponse,
+  PublicLibrary,
+} from '@root/middleware/shared/ports/public-catalog-types'
+import type {
+  RuntimeCapabilitiesResult,
+  RuntimeUser,
+  RuntimeUserRole,
+  UpdateUserParams,
+} from '@root/middleware/shared/ports/runtime-port'
+import type { DebugConnectionConfig } from '@root/middleware/shared/ports/types'
+import type { VersionControlResult } from '@root/middleware/shared/ports/version-control-port'
+import { capabilitiesFromResponse } from '@root/middleware/shared/utils/build-gate/runtime-capabilities-response'
+import { CreatePouFileProps } from '@root/types/IPC/pou-service'
+import { CreateProjectFileProps } from '@root/types/IPC/project-service'
+import { randomUUID } from 'crypto'
+import type { IpcMainEvent, IpcMainInvokeEvent, WebContents } from 'electron'
+import { app, dialog, nativeTheme, shell } from 'electron'
+import { readFile, realpathSync, stat, statSync, unwatchFile, watchFile } from 'fs'
+import { unlink, writeFile } from 'fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { platform } from 'process'
+import { z } from 'zod'
+
+import { MainIpcModule, MainIpcModuleConstructor } from '../../../backend/editor/contracts/types/modules/ipc/main'
+import { toDebugCandidate, toDeviceLinkCandidates } from '../../../backend/editor/hardware/debug-channel-factory'
+import {
+  classifyDeviceLink,
+  type DeviceProbeOutcome,
+  PATIENT_DEVICE_ID_PROBE,
+  QUICK_DEVICE_ID_PROBE,
+  SPECULATIVE_DEVICE_ID_PROBE,
+} from '../../../backend/editor/hardware/device-probe'
+import {
+  describeLinkCandidate,
+  type DeviceDebugCandidate,
+  type DeviceLinkCandidate,
+  type DeviceLinkStatus,
+  DeviceSessionManager,
+} from '../../../backend/editor/hardware/device-session-manager'
+import { type DiscoveredRuntime, discoverRuntimes } from '../../../backend/editor/hardware/discover-runtimes'
+import { LibraryManagerModule } from '../../../backend/editor/library-manager'
+import {
+  type DeviceIdentity,
+  inspectDeviceLicense,
+  type LicenseReadWritable,
+  resolveDeviceLicense,
+} from '../../../backend/editor/license/license-flow'
+import { PackageManagerModule } from '../../../backend/editor/package-manager'
+import { BootloaderApiClient } from '../../../backend/editor/runtime/bootloader-api-client'
+import { RuntimeApiClient } from '../../../backend/editor/runtime/runtime-api-client'
+import { logger } from '../../../backend/editor/services'
+import {
+  getOpenProjectPath,
+  getPdfExportSavePath,
+  getPlcopenExportSavePath,
+  getPlcopenImportFilePath,
+  getProjectPath,
+} from '../../../backend/editor/utils'
+import { SimulatorModule } from '../../../backend/shared/simulator/simulator-module'
+import { VirtualSerialPort } from '../../../backend/shared/simulator/virtual-serial-port'
+import {
+  interpretPluginCommandResponse,
+  PLUGIN_COMMAND_TIMEOUT_MS,
+  type PluginCommandOutcome,
+} from '../../../backend/shared/utils/vpp/screen-actions'
+import { describeDebugEndpoint } from '../../../middleware/shared/utils/debug-endpoint'
+
+const EditSessionClientSchema = z.object({
+  kind: z.literal('desktop'),
+  label: z.string().trim().min(1).max(120),
+})
+
+const isNonEmptyString = (value: unknown): value is string => typeof value === 'string' && value.length > 0
+
+/** Why a channel could not be handed out. */
+interface ChannelUnavailable {
+  error: string
+  needsReconnect: true
+}
+
+/**
+ * The identity read is EITHER `getDeviceId` (baremetal) OR `getAnchor` (runtime-v4), never
+ * both. `isLicenseChannel` narrows with runtime `typeof`, so renaming either silently breaks licensing.
+ */
+type LicenseChannel = LicenseReadWritable &
+  (
+    | { getDeviceId(): Promise<DebugDeviceIdResult>; getAnchor?: never }
+    | { getAnchor(): Promise<DebugAnchorResult>; getDeviceId?: never }
+  )
+
+/**
+ * Whether a debug channel can carry the licensing flow: the two licence FCs plus one of
+ * the two identity reads (both optional on `DeviceDebugChannel`, since not every medium
+ * implements them). Narrows the client itself rather than wrapping it, so the flow
+ * keeps using the same object — and the same send mutex — every other caller holds.
+ */
+function isLicenseChannel(client: DeviceDebugChannel): client is DeviceDebugChannel & LicenseChannel {
+  return (
+    (typeof client.getDeviceId === 'function' || typeof client.getAnchor === 'function') &&
+    typeof client.readLicense === 'function' &&
+    typeof client.writeLicense === 'function'
+  )
+}
+
+/**
+ * Turns a failed identity read into a `check-failed` outcome. `retryable` is only ever
+ * written `false` (absent means retryable); shared as one helper so read-license and
+ * refresh-license always agree on whether to offer "Try Again" for the same board.
+ */
+function checkFailedOutcome(identity: { error: string; retryable?: boolean }): DeviceLicenseReport['outcome'] {
+  return identity.retryable === false
+    ? { state: 'check-failed', error: identity.error, retryable: false }
+    : { state: 'check-failed', error: identity.error }
+}
+
+/** Program-identity comparison, case-insensitively — targets report either case. */
+function matchesMd5(targetMd5: string, expectedMd5: string): boolean {
+  return targetMd5.toLowerCase() === expectedMd5.toLowerCase()
+}
+
+/** What `debugger:verify-md5` answers, named so success/unavailable paths share one type rather than two incompatible inferred ones. */
+interface Md5VerifyReply {
+  success: boolean
+  match?: boolean
+  targetMd5?: string
+  targetEndian?: 'le' | 'be'
+  error?: string
+}
+
+interface AiStream {
+  cancel: () => void
+  sender: WebContents
+}
+
+/**
+ * The telemetry events the renderer may send. `satisfies` only checks one direction: a
+ * renamed/deleted event breaks the build, but a new one must still be added here or it's silently dropped.
+ */
+/** Runtime request timeouts: EtherDOG's own budget plus transport margin. */
+const ETHERCAT_SCAN_MODULES_TIMEOUT_MS = 15000
+const ETHERCAT_DIAGNOSTICS_TIMEOUT_MS = 13000
+
+const AI_TELEMETRY_EVENTS = [
+  'completion_requested',
+  'completion_shown',
+  'completion_accepted',
+  'completion_dismissed',
+  'completion_error',
+  'completion_timeout',
+  'completion_empty',
+  'chat_message',
+  'chat_rating',
+  'conversation_created',
+  'conversation_loaded',
+  'conversation_renamed',
+  'conversation_deleted',
+  'acu_exhausted',
+  'upgrade_cta_clicked',
+] as const satisfies readonly AITelemetryEventName[]
+
+function toAiTelemetryEvent(value: unknown): AITelemetryEventName | undefined {
+  return AI_TELEMETRY_EVENTS.find((name) => name === value)
+}
+
+const retrievedProjectsRoot = (): string => join(app.getPath('userData'), 'retrieved-projects')
+
+/** True for the scratch root (inclusive) or anything inside it; `relative` rather than `startsWith`, so a same-prefixed sibling isn't caught. */
+const isRetrievedProjectPath = (projectPath: string): boolean => {
+  const rel = relative(retrievedProjectsRoot(), projectPath)
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
+class MainProcessBridge implements MainIpcModule {
+  ipcMain
+  mainWindow
+  projectService
+  store
+  menuBuilder
+  pouService
+  compilerModule
+  hardwareModule
+  quitCoordinator
+  private quitPromptReady = false
+  private reloadConfirmed = false
+  private registeredHandleChannels: string[] = []
+  // ONE session for a baremetal device, whatever media it runs over; nothing else here opens a
+  // Modbus client. The runtime-v4 WebSocket is a different protocol and keeps its own session.
+  private readonly deviceSession = new DeviceSessionManager({
+    verify: (client, candidate, context) => this.verifyDeviceCandidate(client, candidate, context),
+    probe: (client) => this.probeDeviceLink(client),
+    serialPortPresent: (port) => this.hardwareModule.isSerialPortPresent(port),
+    emit: (status) => this.emitDeviceLinkStatus(status),
+    log: (message) => this.traceDeviceLink(message),
+  })
+  /** Classification of the candidate the held link came from. */
+  private deviceLinkProbe: DeviceProbeOutcome | null = null
+  private debuggerConnectionType: 'tcp' | 'rtu' | 'websocket' | 'simulator' | null = null
+  // The token-refresh listener is registered in the constructor only: `this.tokens` is
+  // `runtimeApi.tokens`, so a second registration would double-fire `runtime:token-refreshed`.
+  private runtimeApi = new RuntimeApiClient()
+
+  // The runtime bootloader, on its own port/session — separate from runtimeApi since the two services share a credential database, not a token.
+  private bootloaderApi = new BootloaderApiClient()
+  // Address of the runtime this session is authenticated against. Captured at
+  // login so the token authority can re-authenticate against the same device.
+  // Current project root path used to validate file-watcher IPC calls
+  private currentProjectPath: string | null = null
+  // File watchers for auto-reload functionality (using watchFile for better macOS compatibility)
+  private fileWatchers: Map<string, { lastMtime: number }> = new Map()
+  // avr8js ATmega2560 emulator instance for the built-in simulator
+  private simulatorModule = new SimulatorModule()
+  // VPP package manager for board package operations
+  private packageManagerModule: PackageManagerModule
+  // System-wide IEC 61131-3 library pool (bundled + user-installed)
+  private libraryManagerModule = new LibraryManagerModule()
+  // Shared transport for public-catalog HTTP — re-used by the
+  // `catalog:list` handler so the library-manager-module's batch
+  // install path and the modal's browse path hit the same env-
+  // configured base URL.
+  private catalogTransport = createDesktopCatalogTransport()
+  // ESI repository service for EtherCAT device descriptions
+  private esiFiles = new EsiProjectFiles()
+
+  constructor({
+    ipcMain,
+    mainWindow,
+    projectService,
+    store,
+    menuBuilder,
+    pouService,
+    compilerModule,
+    hardwareModule,
+    quitCoordinator,
+    packageManagerModule,
+  }: MainIpcModuleConstructor) {
+    this.packageManagerModule = packageManagerModule ?? new PackageManagerModule()
+    this.ipcMain = ipcMain
+    this.mainWindow = mainWindow
+    this.projectService = projectService
+    this.store = store
+    this.menuBuilder = menuBuilder
+    this.pouService = pouService
+    this.compilerModule = compilerModule
+    this.hardwareModule = hardwareModule
+    this.quitCoordinator = quitCoordinator
+    this.mainWindow?.webContents?.on('render-process-gone', () => {
+      this.quitPromptReady = false
+    })
+    this.mainWindow?.webContents?.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+      if (!isMainFrame || isSameDocument) return
+      this.quitPromptReady = false
+      this.reloadConfirmed = false
+    })
+    // The renderer's beforeunload blocks every unload it did not ask for; a confirmed reload is let through.
+    this.mainWindow?.webContents?.on('will-prevent-unload', (event) => {
+      if (this.reloadConfirmed) event.preventDefault()
+    })
+
+    // When the token authority transparently refreshes an expired token, push
+    // the fresh token to the renderer so its store connection flag tracks it.
+    this.tokens.onTokenChanged((newToken) => {
+      this.mainWindow?.webContents?.send('runtime:token-refreshed', newToken)
+      // A held debug channel (the debugger's long-lived WebSocket) outlives the
+      // token that opened it, and the runtime re-verifies per command — push
+      // the renewal so the session survives the refresh (review 2026-08-20,
+      // R1/E2). Channels opened per call already read the manager at create().
+      this.deviceSession.getDebugClient()?.reauth?.(newToken)
+    })
+  }
+
+  // ===================== BOOTLOADER HANDLERS =====================
+  // Thin pass-throughs: the client owns validation and message wording, and
+  // its errors are written to be shown to a person as they are.
+
+  handleBootloaderGetCapabilities = (_event: IpcMainInvokeEvent, ipAddress: string) =>
+    this.bootloaderApi.getCapabilities(ipAddress)
+
+  handleBootloaderLogin = (_event: IpcMainInvokeEvent, ipAddress: string, username: string, password: string) =>
+    this.bootloaderApi.login(ipAddress, username, password)
+
+  handleBootloaderGetStatus = (_event: IpcMainInvokeEvent, ipAddress: string) => this.bootloaderApi.getStatus(ipAddress)
+
+  handleBootloaderGetDeviceInfo = (_event: IpcMainInvokeEvent, ipAddress: string) =>
+    this.bootloaderApi.getDeviceInfo(ipAddress)
+
+  handleBootloaderGetRuntimeLogs = (_event: IpcMainInvokeEvent, ipAddress: string, tail?: number) =>
+    this.bootloaderApi.getRuntimeLogs(ipAddress, tail)
+
+  handleBootloaderStartUpdate = (_event: IpcMainInvokeEvent, ipAddress: string, version: string) =>
+    this.bootloaderApi.startUpdate(ipAddress, version)
+
+  handleBootloaderGetUpdateProgress = (_event: IpcMainInvokeEvent, ipAddress: string) =>
+    this.bootloaderApi.getUpdateProgress(ipAddress)
+
+  handleBootloaderRestartRuntime = (_event: IpcMainInvokeEvent, ipAddress: string) =>
+    this.bootloaderApi.restartRuntime(ipAddress)
+
+  handleBootloaderClearSession = (_event: IpcMainInvokeEvent, ipAddress?: string) => {
+    this.bootloaderApi.clearSession(ipAddress)
+    return { success: true as const }
+  }
+
+  // ===================== RUNTIME API HANDLERS =====================
+  // The port and the two timeouts live on `RuntimeApiClient`, not here.
+
+  handleRuntimeGetUsersInfo = (_event: IpcMainInvokeEvent, ipAddress: string) => this.runtimeApi.getUsersInfo(ipAddress)
+
+  handleRuntimeGetCapabilities = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<RuntimeCapabilitiesResult> => {
+    const parseBody = (data: string): unknown => JSON.parse(data)
+    const result = await this.runtimeApi.makeRuntimeApiRequest(
+      ipAddress,
+      '/api/discovery/ethercat/capabilities',
+      parseBody,
+    )
+    return result.success
+      ? capabilitiesFromResponse({ statusCode: 200, body: result.data })
+      : capabilitiesFromResponse({ statusCode: result.statusCode, error: result.error })
+  }
+
+  handleRuntimeCreateUser = (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    username: string,
+    password: string,
+    role?: RuntimeUserRole,
+  ) => this.runtimeApi.createUser(ipAddress, username, password, role)
+
+  handleRuntimeListUsers = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    const res = await this.makeRuntimeApiRequest<RuntimeUser[]>(ipAddress, '/api/get-users-info', (data) => {
+      // With a valid admin token this is a user array; without one the runtime
+      // answers the existence-only {"msg":"Users found"} object — coerce that
+      // (or any non-array) to an empty list so the caller never gets a non-array.
+      const parsed: unknown = JSON.parse(data)
+      return Array.isArray(parsed) ? (parsed as RuntimeUser[]) : []
+    })
+    return res.success ? { success: true, users: res.data } : { success: false, error: res.error }
+  }
+
+  handleRuntimeWhoAmI = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    const res = await this.makeRuntimeApiRequest<RuntimeUser>(
+      ipAddress,
+      '/api/whoami',
+      (data) => JSON.parse(data) as RuntimeUser,
+    )
+    return res.success ? { success: true, user: res.data } : { success: false, error: res.error }
+  }
+
+  handleRuntimeUpdateUser = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    userId: number,
+    params: UpdateUserParams,
+  ) => {
+    // The runtime expects snake_case `current_password`; only send provided fields.
+    const body: Record<string, string> = {}
+    if (params.username !== undefined) body.username = params.username
+    if (params.password !== undefined) body.password = params.password
+    if (params.currentPassword !== undefined) body.current_password = params.currentPassword
+    if (params.role !== undefined) body.role = params.role
+    const res = await this.makeRuntimeApiMutation('PUT', ipAddress, `/api/update-user/${userId}`, JSON.stringify(body))
+    return res.success ? { success: true } : { success: false, error: res.error }
+  }
+
+  handleRuntimeDeleteUser = async (_event: IpcMainInvokeEvent, ipAddress: string, userId: number) => {
+    const res = await this.makeRuntimeApiMutation('DELETE', ipAddress, `/api/delete-user/${userId}`)
+    return res.success ? { success: true } : { success: false, error: res.error }
+  }
+
+  handleRuntimeLogin = (_event: IpcMainInvokeEvent, ipAddress: string, username: string, password: string) =>
+    // The client adopts the session so it can transparently re-authenticate
+    // against this device when the token expires.
+    this.runtimeApi.login(ipAddress, username, password)
+
+  /**
+   * Wrap a service call with standardized error handling.
+   */
+  private async wrapServiceCall<T>(fn: () => Promise<T>): Promise<T | { success: false; error: string }> {
+    try {
+      return await fn()
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleRuntimeGetStatus = async (_event: IpcMainInvokeEvent, ipAddress: string, includeStats?: boolean) => {
+    try {
+      // Build the endpoint path with optional include_stats query parameter
+      const endpoint = includeStats ? '/api/status?include_stats=true' : '/api/status'
+
+      // strucpp+ runtimes report per-task timing_stats = { tasks: [...] }; older ones
+      // report a flat object. Both may carry an optional plugin_stats map, forwarded verbatim either way.
+      type PluginStatsField = { label: string; value: string | number | boolean; unit?: string }
+      type PluginStatsPayload = { label: string; fields: PluginStatsField[] }
+      type PluginStatsMap = Record<string, PluginStatsPayload>
+      type TaskStats = {
+        name: string
+        scan_count: number
+        scan_time_min: number | null
+        scan_time_max: number | null
+        scan_time_avg: number | null
+        cycle_time_min: number | null
+        cycle_time_max: number | null
+        cycle_time_avg: number | null
+        cycle_latency_min: number | null
+        cycle_latency_max: number | null
+        cycle_latency_avg: number | null
+        overruns: number
+      }
+      type TimingStatsResponse =
+        | { tasks: TaskStats[]; plugin_stats?: PluginStatsMap }
+        | (Omit<TaskStats, 'name'> & { tasks?: undefined; plugin_stats?: PluginStatsMap })
+
+      const result = await this.makeRuntimeApiRequest<{
+        status: string
+        timing_stats?: TimingStatsResponse
+        // Run/stop mode-switch position. Absent on runtimes older than the
+        // run/stop interface — treat undefined as "no gating".
+        switchPosition?: 'run' | 'stop'
+      }>(ipAddress, endpoint, (data: string) => {
+        const response = JSON.parse(data) as {
+          status: string
+          timing_stats?: TimingStatsResponse
+          switchPosition?: 'run' | 'stop'
+        }
+        return response
+      })
+
+      if (result.success && result.data) {
+        const raw = result.data.timing_stats
+        let timingStats: { tasks: TaskStats[]; plugin_stats?: PluginStatsMap } | undefined
+        if (raw && Array.isArray((raw as { tasks?: TaskStats[] }).tasks)) {
+          timingStats = raw as { tasks: TaskStats[]; plugin_stats?: PluginStatsMap }
+        } else if (raw && typeof (raw as { scan_count?: number }).scan_count === 'number') {
+          // Legacy flat shape — wrap into a single-entry tasks array so the renderer can iterate uniformly.
+          const flat = raw as Omit<TaskStats, 'name'> & { plugin_stats?: PluginStatsMap }
+          const { plugin_stats, ...flatStats } = flat
+          timingStats = {
+            tasks: [{ name: 'plc', ...flatStats }],
+            ...(plugin_stats ? { plugin_stats } : {}),
+          }
+        }
+        return {
+          success: true,
+          status: result.data.status,
+          timingStats,
+          ...(result.data.switchPosition ? { switchPosition: result.data.switchPosition } : {}),
+        }
+      } else {
+        return { success: false, error: !result.success ? result.error : 'Unknown error' }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeStartPlc = (_event: IpcMainInvokeEvent, ipAddress: string) => this.restStartPlc(ipAddress)
+
+  handleRuntimeStopPlc = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    try {
+      return await this.makeRuntimeApiRequest(ipAddress, '/api/stop-plc')
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeGetCompilationStatus = async (_event: IpcMainInvokeEvent, ipAddress: string) => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ status: string; logs: string[]; exit_code: number | null }>(
+        ipAddress,
+        '/api/compilation-status',
+        (data: string) => {
+          const response = JSON.parse(data) as { status: string; logs: string[]; exit_code: number | null }
+          return response
+        },
+      )
+      return result
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeGetLogs = async (_event: IpcMainInvokeEvent, ipAddress: string, minId?: number) => {
+    try {
+      const endpoint = minId !== undefined ? `/api/runtime-logs?id=${minId}` : '/api/runtime-logs'
+      const result = await this.makeRuntimeApiRequest<string | RuntimeLogEntry[]>(
+        ipAddress,
+        endpoint,
+        (data: string) => {
+          const response = JSON.parse(data) as { 'runtime-logs': string | RuntimeLogEntry[] }
+          return response['runtime-logs']
+        },
+      )
+      if (result.success) {
+        return { success: true, logs: result.data }
+      } else {
+        return { success: false, error: result.error }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  handleRuntimeClearCredentials = (_event: IpcMainInvokeEvent) => {
+    this.tokens.clear()
+    this.runtimeApi.clearSession()
+    // The bootloader keeps its own session, so clearing only the runtime's
+    // left the previous user's bootloader token usable -- and that token can
+    // change the runtime version. Signing out has to mean both.
+    this.bootloaderApi.clearSession()
+    return { success: true }
+  }
+
+  // ===================== RUNTIME LAN DISCOVERY =====================
+
+  handleRuntimeDiscoverDevices = async (
+    event: IpcMainInvokeEvent,
+    opts?: { durationMs?: number },
+  ): Promise<{
+    success: boolean
+    devices?: DiscoveredRuntime[]
+    error?: string
+  }> => {
+    const senderWebContents = event.sender
+    const result = await discoverRuntimes({
+      durationMs: opts?.durationMs,
+      onDevice: (device) => {
+        // Stream live so the modal appends rows as devices come in rather than
+        // waiting out the whole window.
+        if (!senderWebContents.isDestroyed()) {
+          senderWebContents.send('runtime:device-discovered', device)
+        }
+      },
+      onDiagnostic: (message) => logger.debug(message),
+    })
+    return result.success ? { success: true, devices: result.devices } : { success: false, error: result.error }
+  }
+
+  handleRuntimeGetSerialPorts = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; ports?: Array<{ device: string; description?: string }>; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ ports: Array<{ device: string; description?: string }> }>(
+        ipAddress,
+        '/api/serial-ports',
+        (data: string) => {
+          const response = JSON.parse(data) as {
+            ports?: Array<{ device: string; description?: string }>
+            error?: string
+          }
+          if (response.error) {
+            throw new Error(response.error)
+          }
+          return { ports: response.ports || [] }
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, ports: result.data.ports }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /**
+   * VPP screen actions (`discover`, `test`, `status`) against the runtime's
+   * existing `POST /api/plugin-command` catch-all.
+   *
+   * That route answers HTTP 200 even when the plugin failed, with the reason
+   * in an `error` key, so the body is parsed and interpreted here rather than
+   * the status code being taken as the answer. The runtime is not changed by
+   * any of this — the route already exists and is used as it is.
+   */
+  handleRuntimeSendPluginCommand = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    args: { plugin: string; command: string; params?: Record<string, unknown> },
+  ): Promise<PluginCommandOutcome> => {
+    try {
+      // Bounded by the same limit the web adapter uses; the default request timeout is shorter than a bus scan.
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/plugin-command',
+        JSON.stringify({ plugin: args.plugin, command: args.command, params: args.params ?? {} }),
+        (data: string) => data,
+        PLUGIN_COMMAND_TIMEOUT_MS,
+      )
+      if (!result.success) {
+        return { ok: false, error: result.error }
+      }
+      let body: unknown
+      try {
+        body = JSON.parse(result.data)
+      } catch {
+        return { ok: false, error: 'The device returned an unreadable response.' }
+      }
+      return interpretPluginCommandResponse(200, body)
+    } catch (error) {
+      return { ok: false, error: getErrorMessage(error) }
+    }
+  }
+
+  // ===================== RUNTIME API (delegated) =====================
+  // Thin pass-throughs to `RuntimeApiClient`. They stay on this class because
+  // `CompilerModule`'s bridge contract and several handlers call them by name.
+
+  makeRuntimeApiRequest = <T = void>(
+    ipAddress: string,
+    endpoint: string,
+    responseParser?: (data: string) => T,
+  ): Promise<{ success: true; data?: T } | { success: false; error: string }> =>
+    this.runtimeApi.makeRuntimeApiRequest(ipAddress, endpoint, responseParser)
+
+  makeRuntimeApiPostRequest = <T>(
+    ipAddress: string,
+    endpoint: string,
+    body: string,
+    responseParser: (data: string) => T,
+    timeoutMs?: number,
+  ): Promise<{ success: true; data: T } | { success: false; error: string }> =>
+    this.runtimeApi.makeRuntimeApiPostRequest(ipAddress, endpoint, body, responseParser, timeoutMs)
+
+  makeRuntimeApiUpload = (opts: {
+    ipAddress: string
+    fileBuffer: Buffer
+    filename: string
+    contentType: string
+    cleanBuild: boolean
+    snapshotBuffer?: Buffer
+    snapshotMetadata?: string
+    onUploadAccepted?: (responseBody: string) => void
+  }): Promise<{ success: true; data: string } | { success: false; error: string }> =>
+    this.runtimeApi.makeRuntimeApiUpload(opts)
+
+  /** Username of the live runtime session, so an uploaded project can record
+   *  who stored it. Only the username crosses this boundary. */
+  getRuntimeUsername = (): string | null => this.runtimeApi.tokens.getUsername()
+
+  /**
+   * Install the libraries a retrieved project brought with it. Each goes through the
+   * same strucpp validation as a library the user picked by hand — an archive off a device earns no extra trust.
+   */
+  handleInstallRetrievedLibraries = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    names: string[],
+  ): Promise<{ success: boolean; installed: string[]; failed: Array<{ name: string; error: string }> }> => {
+    const archives = this.retrievedLibraries.get(projectPath) ?? []
+    const manager = new LibraryManagerModule()
+    const installed: string[] = []
+    const failed: Array<{ name: string; error: string }> = []
+
+    for (const library of archives) {
+      if (!names.includes(library.name)) continue
+      const result = await manager.installFromText(library.archive)
+      if (result.success) installed.push(library.name)
+      else failed.push({ name: library.name, error: result.error ?? 'Install failed' })
+    }
+    return { success: failed.length === 0, installed, failed }
+  }
+
+  /**
+   * Retrieve the stored project and write it to a scratch directory. Fetch and unpack
+   * are one IPC call since the archive is untrusted bytes from a device and every write
+   * safety check lives next to the write; the renderer gets a path and description, never the archive.
+   */
+  /** Bundled library archives from the most recent retrievals, keyed by project path so installing always installs what that project carried. */
+  private retrievedLibraries = new Map<string, Array<{ name: string; archive: string }>>()
+
+  /** Drops every retrieved project's libraries except the one just retrieved, to avoid holding every library of every retrieval for the whole session. */
+  private forgetRetrievedLibrariesExcept(keep: string): void {
+    for (const path of [...this.retrievedLibraries.keys()]) {
+      if (path !== keep) this.retrievedLibraries.delete(path)
+    }
+  }
+
+  handleRuntimeRetrieveProject = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{
+    success: boolean
+    projectPath?: string
+    projectName?: string
+    metadata?: SnapshotMetadata
+    libraries?: Array<{ name: string; version: string; status: 'installed' | 'differs' | 'missing' }>
+    error?: string
+  }> => {
+    const fetched = await this.runtimeApi.retrieveProjectSnapshot(ipAddress)
+    if (!fetched.success) return { success: false, error: fetched.error }
+
+    try {
+      const scratchRoot = retrievedProjectsRoot()
+      // Old retrievals go before the new one is written — a retrieved project stays in
+      // scratch until Save As, so without this every retrieval accumulates a folder forever.
+      await pruneRetrievedProjects(scratchRoot, RETAINED_RETRIEVALS)
+      // Its own try/catch, outside the retrieve's: a locked/unwritable `projects.json`
+      // must not turn tidying up into a failed retrieve.
+      try {
+        await this.forgetRetrievedProjectsInHistory()
+      } catch (error) {
+        logger.error('Could not drop retrieved projects from history: ' + getErrorMessage(error))
+      }
+
+      const materialized = await materializeRetrievedProject(new Uint8Array(fetched.archive), {
+        scratchRoot,
+      })
+      // Same for the in-memory copy: this map holds the full text of every
+      // library each retrieval carried, and it only ever grew.
+      this.forgetRetrievedLibrariesExcept(materialized.projectPath)
+      this.retrievedLibraries.set(
+        materialized.projectPath,
+        materialized.libraries.map(({ name, archive }) => ({ name, archive })),
+      )
+      return {
+        success: true,
+        projectPath: materialized.projectPath,
+        projectName: materialized.projectName,
+        metadata: materialized.metadata,
+        // Status, not archives. The renderer decides what to offer; the bytes
+        // stay in the main process where the library manager can write them,
+        // and are re-read from the same archive when the user says yes.
+        libraries: await describeRetrievedLibraries(materialized.libraries, (name) =>
+          new LibraryManagerModule().readArchiveText(name),
+        ),
+      }
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  private makeRuntimeApiMutation = (
+    method: 'POST' | 'PUT' | 'DELETE',
+    ipAddress: string,
+    endpoint: string,
+    body?: string,
+  ): Promise<{ success: true; data: string } | { success: false; error: string }> =>
+    this.runtimeApi.makeRuntimeApiMutation(method, ipAddress, endpoint, body)
+
+  private restStartPlc = (address: string) => this.runtimeApi.startPlc(address)
+
+  /** The token authority, so existing call sites keep reading `this.tokens`. */
+  private get tokens() {
+    return this.runtimeApi.tokens
+  }
+
+  private get runtimeIp(): string | null {
+    return this.runtimeApi.getAddress()
+  }
+
+  // ===================== IPC HANDLER REGISTRATION =====================
+
+  /** Registers an invoke handler and tracks the channel for cleanup. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private registerHandle(channel: string, handler: (event: IpcMainInvokeEvent, ...args: any[]) => any) {
+    this.registeredHandleChannels.push(channel)
+    this.ipcMain.handle(channel, handler)
+  }
+
+  /** Removes previously registered invoke handlers so they can be re-registered with fresh references on macOS window reopen. */
+  private cleanupHandlers() {
+    for (const channel of this.registeredHandleChannels) {
+      this.ipcMain.removeHandler(channel)
+    }
+    this.registeredHandleChannels = []
+  }
+
+  setupMainIpcListener() {
+    this.cleanupHandlers()
+
+    // Project-related handlers
+    this.registerHandle('project:create', this.handleProjectCreate)
+    this.registerHandle('project:open', this.handleProjectOpen)
+    this.registerHandle('project:path-picker', this.handleProjectPathPicker)
+    this.registerHandle('project:open-path-picker', this.handleOpenProjectPathPicker)
+    this.registerHandle('project:write-files', this.handleWriteProjectFiles)
+    this.registerHandle('project:save-file', this.handleFileSave)
+    this.registerHandle('project:open-by-path', this.handleProjectOpenByPath)
+    this.registerHandle('project:read-files', this.handleReadProjectFiles)
+    this.registerHandle('project:pick-plcopen-import-file', this.handlePickPlcopenImportFile)
+    this.registerHandle('project:export-plcopen-file', this.handleExportPlcopenFile)
+    this.registerHandle('project:export-pdf-file', this.handleExportPdfFile)
+
+    // Pou-related handlers
+    this.registerHandle('pou:create', this.handleCreatePouFile)
+    this.registerHandle('pou:delete', this.handleDeletePouFile)
+    this.registerHandle('pou:rename', this.handleRenamePouFile)
+
+    // App and system handlers
+    this.registerHandle('open-external-link', this.handleOpenExternalLink)
+    this.registerHandle('system:get-system-info', this.handleGetSystemInfo)
+    this.registerHandle('libraries:load-all', this.handleLibrariesLoadAll)
+    this.registerHandle('libraries:list-installed', this.handleLibrariesListInstalled)
+    this.registerHandle('libraries:install-from-file', this.handleLibrariesInstallFromFile)
+    this.registerHandle('libraries:uninstall', this.handleLibrariesUninstall)
+    this.registerHandle('catalog:list', this.handleCatalogList)
+    // All of it runs in the main process: the renderer is not on Edge's origin, so
+    // it can neither inherit a shared-domain cookie nor make the request itself.
+    this.registerHandle('edge-account:fetch-user', this.handleEdgeFetchUser)
+    this.registerHandle('edge-account:fetch-plan-caption', this.handleEdgeFetchPlanCaption)
+    this.registerHandle('edge-account:sign-in', this.handleEdgeSignIn)
+    this.registerHandle('edge-account:sign-out', this.handleEdgeSignOut)
+    this.registerHandle('edge-account:is-session-persistent', this.handleEdgeIsSessionPersistent)
+    this.registerHandle('edge-projects:list-recent', this.handleEdgeProjectsListRecent)
+    this.registerHandle('edge-projects:list-in-folder', this.handleEdgeProjectsListInFolder)
+    this.registerHandle('edge-projects:read', this.handleEdgeProjectsRead)
+    this.registerHandle('edge-projects:save-project', this.handleEdgeProjectsSaveProject)
+    this.registerHandle('edge-projects:save-file', this.handleEdgeProjectsSaveFile)
+    this.registerHandle('edge-edit-session:open', this.handleEdgeEditSessionOpen)
+    this.registerHandle('edge-edit-session:heartbeat', this.handleEdgeEditSessionHeartbeat)
+    this.registerHandle('edge-edit-session:close', this.handleEdgeEditSessionClose)
+    this.registerHandle('edge-upload:list-folders', this.handleEdgeUploadListFolders)
+    this.registerHandle('edge-upload:project', this.handleEdgeUploadProject)
+    this.registerHandle('edge-vc:list-branches', this.handleEdgeVcListBranches)
+    this.registerHandle('edge-vc:create-branch', this.handleEdgeVcCreateBranch)
+    this.registerHandle('edge-vc:delete-branch', this.handleEdgeVcDeleteBranch)
+    this.registerHandle('edge-vc:switch-branch', this.handleEdgeVcSwitchBranch)
+    this.registerHandle('edge-vc:preview-switch-carry', this.handleEdgeVcPreviewSwitchCarry)
+    this.registerHandle('edge-vc:list-commits', this.handleEdgeVcListCommits)
+    this.registerHandle('edge-vc:create-commit', this.handleEdgeVcCreateCommit)
+    this.registerHandle('edge-vc:get-commit-files', this.handleEdgeVcGetCommitFiles)
+    this.registerHandle('edge-vc:restore-commit', this.handleEdgeVcRestoreCommit)
+    this.registerHandle('edge-vc:get-changes', this.handleEdgeVcGetChanges)
+    this.registerHandle('edge-vc:discard-changes', this.handleEdgeVcDiscardChanges)
+    this.registerHandle('edge-vc:list-stashes', this.handleEdgeVcListStashes)
+    this.registerHandle('edge-vc:create-stash', this.handleEdgeVcCreateStash)
+    this.registerHandle('edge-vc:apply-stash', this.handleEdgeVcApplyStash)
+    this.registerHandle('edge-vc:pop-stash', this.handleEdgeVcPopStash)
+    this.registerHandle('edge-vc:drop-stash', this.handleEdgeVcDropStash)
+    this.registerHandle('edge-vc:branch-diff-with-base', this.handleEdgeVcBranchDiffWithBase)
+    this.registerHandle('edge-vc:merge-branches', this.handleEdgeVcMergeBranches)
+    // stream-start/stream-abort are a pair: stream-start answers with an id, and events arrive under it on edge-ai:event/end/error.
+    this.registerHandle('edge-ai:entitlements', this.handleEdgeAiEntitlements)
+    this.registerHandle('edge-ai:usage', this.handleEdgeAiUsage)
+    this.registerHandle('edge-ai:credits', this.handleEdgeAiCredits)
+    this.registerHandle('edge-ai:warm', this.handleEdgeAiWarm)
+    this.registerHandle('edge-ai:telemetry', this.handleEdgeAiTelemetry)
+    this.registerHandle('edge-ai:conversations-list', this.handleEdgeAiConversationsList)
+    this.registerHandle('edge-ai:conversations-get', this.handleEdgeAiConversationsGet)
+    this.registerHandle('edge-ai:conversations-create', this.handleEdgeAiConversationsCreate)
+    this.registerHandle('edge-ai:conversations-rename', this.handleEdgeAiConversationsRename)
+    this.registerHandle('edge-ai:conversations-delete', this.handleEdgeAiConversationsDelete)
+    this.registerHandle('edge-ai:stream-start', this.handleEdgeAiStreamStart)
+    this.registerHandle('edge-ai:stream-abort', this.handleEdgeAiStreamAbort)
+    this.registerHandle('catalog:install-many', this.handleCatalogInstallMany)
+    this.registerHandle('app:store-retrieve-recent', this.handleStoreRetrieveRecent)
+    this.registerHandle('project:remove-from-recent', this.handleRemoveProjectFromRecent)
+    this.registerHandle('project:track-recent', this.handleTrackRecentProject)
+    this.registerHandle('project:delete', this.handleDeleteProject)
+    this.ipcMain.on('app:request-quit', this.handleAppRequestQuit)
+    this.ipcMain.on('app:quit-ready', this.handleAppQuitReady)
+    this.ipcMain.on('app:quit-unready', this.handleAppQuitUnready)
+    this.ipcMain.on('app:quit', this.handleAppQuit)
+    // this.ipcMain.on('app:reply-if-app-is-closing', (_, shouldQuit) => { ... })
+
+    // Theme and store handlers
+    this.ipcMain.on('system:update-theme', this.mainIpcEventHandlers.handleUpdateTheme)
+    this.ipcMain.handle('system:get-theme', this.mainIpcEventHandlers.handleGetTheme)
+    // this.ipcMain.handle('app:store-get', this.mainIpcEventHandlers.getStoreValue)
+
+    // ===================== COMPILER SERVICE =====================
+    this.ipcMain.on('compiler:run-compile-program', this.handleRunCompileProgram)
+    this.ipcMain.on('compiler:run-debug-compilation', this.handleRunDebugCompilation)
+    this.ipcMain.on('compiler:run-compile-library', this.handleRunCompileLibrary)
+
+    // ===================== WINDOW CONTROLS =====================
+    this.ipcMain.on('window-controls:close', this.handleWindowControlsClose)
+    this.ipcMain.on('window-controls:closed', this.handleWindowControlsClosed)
+    this.ipcMain.on('window-controls:hide', this.handleWindowControlsHide)
+    this.ipcMain.on('window-controls:minimize', this.handleWindowControlsMinimize)
+    this.ipcMain.on('window-controls:maximize', this.handleWindowControlsMaximize)
+    this.ipcMain.on('window:reload', this.handleWindowReload)
+    this.ipcMain.on('window:rebuild-menu', this.handleWindowRebuildMenu)
+    this.ipcMain.on('window:project-open', this.handleWindowProjectOpen)
+
+    // ===================== HARDWARE =====================
+    this.registerHandle('hardware:get-available-communication-ports', this.handleHardwareGetAvailableCommunicationPorts)
+    this.registerHandle('hardware:get-available-boards', this.handleHardwareGetAvailableBoards)
+    this.registerHandle('hardware:refresh-communication-ports', this.handleHardwareRefreshCommunicationPorts)
+    this.registerHandle('hardware:refresh-available-boards', this.handleHardwareRefreshAvailableBoards)
+
+    // ===================== PACKAGE MANAGER =====================
+    this.registerHandle('packages:import-from-file', this.handlePackagesImportFromFile)
+    this.registerHandle('packages:install-from-url', this.handlePackagesInstallFromUrl)
+    this.registerHandle('packages:list-installed', this.handlePackagesListInstalled)
+    this.registerHandle('packages:uninstall', this.handlePackagesUninstall)
+    this.registerHandle('packages:get-manifest', this.handlePackagesGetManifest)
+    this.registerHandle('packages:get-pin', this.handlePackagesGetPin)
+    this.registerHandle('packages:verify-signatures', this.handlePackagesVerifySignatures)
+
+    // ===================== UTILITIES =====================
+    this.registerHandle('util:get-preview-image', this.handleUtilGetPreviewImage)
+    this.ipcMain.on('util:log', this.handleUtilLog)
+    this.registerHandle('util:read-debug-file', this.handleReadDebugFile)
+
+    // ===================== DEBUGGER =====================
+    this.registerHandle('debugger:verify-md5', this.handleDebuggerVerifyMd5)
+    this.registerHandle('debugger:plc-control', this.handleDebuggerPlcControl)
+    this.registerHandle('debugger:read-program-st-md5', this.handleReadProgramStMd5)
+    this.registerHandle('debugger:get-variables-list', this.handleDebuggerGetVariablesList)
+    this.registerHandle('debugger:set-variable', this.handleDebuggerSetVariable)
+    this.registerHandle('debugger:connect', this.handleDebuggerConnect)
+    this.registerHandle('debugger:disconnect', this.handleDebuggerDisconnect)
+    this.registerHandle('device:connect', this.handleDeviceConnect)
+    this.registerHandle('device:disconnect', this.handleDeviceDisconnect)
+    this.registerHandle('device:release-serial-port', this.handleDeviceReleaseSerialPort)
+    // VPP licensing over the HELD link — callable any time the device is
+    // connected, deliberately not folded into `device:connect`. See the handlers.
+    this.registerHandle('device:read-license', this.handleDeviceReadLicense)
+    this.registerHandle('device:refresh-license', this.handleDeviceRefreshLicense)
+    this.registerHandle('session:open-runtime', this.handleOpenRuntimeSession)
+    this.registerHandle('session:close-runtime', this.handleCloseRuntimeSession)
+
+    // ===================== RUNTIME API =====================
+    this.registerHandle('runtime:get-users-info', this.handleRuntimeGetUsersInfo)
+    this.registerHandle('runtime:get-capabilities', this.handleRuntimeGetCapabilities)
+    this.registerHandle('runtime:create-user', this.handleRuntimeCreateUser)
+    this.registerHandle('runtime:list-users', this.handleRuntimeListUsers)
+    this.registerHandle('runtime:whoami', this.handleRuntimeWhoAmI)
+    this.registerHandle('runtime:update-user', this.handleRuntimeUpdateUser)
+    this.registerHandle('runtime:delete-user', this.handleRuntimeDeleteUser)
+    this.registerHandle('runtime:login', this.handleRuntimeLogin)
+    this.registerHandle('runtime:get-status', this.handleRuntimeGetStatus)
+    this.registerHandle('runtime:start-plc', this.handleRuntimeStartPlc)
+    this.registerHandle('runtime:stop-plc', this.handleRuntimeStopPlc)
+    this.registerHandle('runtime:get-compilation-status', this.handleRuntimeGetCompilationStatus)
+    this.registerHandle('runtime:get-logs', this.handleRuntimeGetLogs)
+    this.registerHandle('runtime:clear-credentials', this.handleRuntimeClearCredentials)
+    this.registerHandle('runtime:get-serial-ports', this.handleRuntimeGetSerialPorts)
+    this.registerHandle('runtime:send-plugin-command', this.handleRuntimeSendPluginCommand)
+    this.registerHandle('runtime:discover-devices', this.handleRuntimeDiscoverDevices)
+    this.registerHandle('runtime:retrieve-project', this.handleRuntimeRetrieveProject)
+    this.registerHandle('runtime:install-retrieved-libraries', this.handleInstallRetrievedLibraries)
+
+    // ===================== BOOTLOADER =====================
+    this.registerHandle('bootloader:get-capabilities', this.handleBootloaderGetCapabilities)
+    this.registerHandle('bootloader:login', this.handleBootloaderLogin)
+    this.registerHandle('bootloader:get-status', this.handleBootloaderGetStatus)
+    this.registerHandle('bootloader:get-device-info', this.handleBootloaderGetDeviceInfo)
+    this.registerHandle('bootloader:get-runtime-logs', this.handleBootloaderGetRuntimeLogs)
+    this.registerHandle('bootloader:start-update', this.handleBootloaderStartUpdate)
+    this.registerHandle('bootloader:get-update-progress', this.handleBootloaderGetUpdateProgress)
+    this.registerHandle('bootloader:restart-runtime', this.handleBootloaderRestartRuntime)
+    this.registerHandle('bootloader:clear-session', this.handleBootloaderClearSession)
+
+    // ===================== ETHERCAT DISCOVERY =====================
+    this.registerHandle('ethercat:get-interfaces', this.handleEtherCATGetInterfaces)
+    this.registerHandle('ethercat:get-status', this.handleEtherCATGetStatus)
+    this.registerHandle('ethercat:scan', this.handleEtherCATScan)
+    this.registerHandle('ethercat:scan-modules', this.handleEtherCATScanModules)
+    this.registerHandle('ethercat:diagnostics', this.handleEtherCATDiagnostics)
+    this.registerHandle('ethercat:test', this.handleEtherCATTest)
+    this.registerHandle('ethercat:validate', this.handleEtherCATValidate)
+    this.registerHandle('ethercat:get-runtime-status', this.handleEtherCATGetRuntimeStatus)
+
+    // ===================== ESI REPOSITORY =====================
+    this.registerHandle('esi:parse', this.handleESIParse)
+    this.registerHandle('esi:file-read', this.handleESIFileRead)
+    this.registerHandle('esi:file-write', this.handleESIFileWrite)
+    this.registerHandle('esi:file-remove', this.handleESIFileRemove)
+    this.registerHandle('esi:file-list', this.handleESIFileList)
+
+    // ===================== SIMULATOR =====================
+    this.registerHandle('simulator:load-firmware', this.handleSimulatorLoadFirmware)
+    this.registerHandle('simulator:stop', this.handleSimulatorStop)
+    this.registerHandle('simulator:is-running', this.handleSimulatorIsRunning)
+
+    // ===================== FILE WATCHER =====================
+    this.registerHandle('file:watch-start', this.handleFileWatchStart)
+    this.registerHandle('file:watch-stop', this.handleFileWatchStop)
+    this.registerHandle('file:watch-stop-all', this.handleFileWatchStopAll)
+    this.registerHandle('file:read-content', this.handleFileReadContent)
+  }
+
+  // ===================== HANDLER METHODS =====================
+  // Project-related handlers
+  handleProjectCreate = async (_event: IpcMainInvokeEvent, data: CreateProjectFileProps) => {
+    this.stopSimulatorAndNotify()
+    const response = await this.projectService.createProject(data)
+    // Mirrors `handleProjectOpen`: sandboxed file IPC gates on `validateFilePath`, which needs a project root to compare against.
+    if (response.success && response.data?.meta.path) {
+      this.currentProjectPath = response.data.meta.path
+    }
+    return response
+  }
+  handleProjectOpen = async () => {
+    this.stopSimulatorAndNotify()
+    const response = await this.projectService.openProject()
+    if (response.success && response.data?.meta.path) {
+      this.currentProjectPath = response.data.meta.path
+    }
+    return response
+  }
+  handleProjectPathPicker = async (_event: IpcMainInvokeEvent) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getProjectPath(windowManager)
+        return res
+      }
+      logger.error('Window object not defined')
+    } catch (error) {
+      logger.error('Error getting project path: ' + getErrorMessage(error))
+    }
+  }
+  handleOpenProjectPathPicker = async (_event: IpcMainInvokeEvent) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getOpenProjectPath(windowManager)
+        return res
+      }
+      logger.error('Window object not defined')
+      return { success: false, error: { title: 'Internal error', description: 'Window object not defined' } }
+    } catch (error) {
+      logger.error('Error getting project path: ' + getErrorMessage(error))
+      return { success: false, error: { title: 'Internal error', description: getErrorMessage(error) } }
+    }
+  }
+  handleFileSave = async (_event: IpcMainInvokeEvent, filePath: string, content: unknown) => {
+    const result = await this.projectService.saveFile(filePath, content as string)
+    if (result.success) {
+      // Update lastMtime for the saved file's watcher to suppress self-trigger
+      const watcherData = this.fileWatchers.get(filePath)
+      if (watcherData) {
+        try {
+          const stats = statSync(filePath)
+          if (stats.mtimeMs > watcherData.lastMtime) {
+            watcherData.lastMtime = stats.mtimeMs
+          }
+        } catch {
+          /* file may not exist */
+        }
+      }
+    }
+    return result
+  }
+  handleWriteProjectFiles = (_event: IpcMainInvokeEvent, files: unknown) =>
+    this.projectService.writeProjectFiles(files as Parameters<typeof this.projectService.writeProjectFiles>[0])
+  handleProjectOpenByPath = async (_event: IpcMainInvokeEvent, projectPath: string) => {
+    this.stopSimulatorAndNotify()
+    try {
+      const response = await this.projectService.openProjectByPath(projectPath)
+      if (response.success && response.data?.meta.path) {
+        this.currentProjectPath = response.data.meta.path
+      }
+      return response
+    } catch (_error) {
+      return {
+        success: false,
+        error: {
+          title: 'Error opening project',
+          description: 'Please try again',
+        },
+      }
+    }
+  }
+
+  private forgetRetrievedProjectsInHistory = async (): Promise<void> => {
+    const historyPath = this.projectService.getHistoryProjectsFilePath()
+    const history = await this.projectService.readProjectHistory(historyPath)
+    const kept = history.filter((entry) => !isRetrievedProjectPath(entry.path))
+    if (kept.length === history.length) return
+    await this.projectService.replaceProjectHistory(historyPath, kept)
+  }
+
+  handleReadProjectFiles = async (_event: IpcMainInvokeEvent, projectPath: string) => {
+    try {
+      this.stopSimulatorAndNotify()
+      const result = await this.projectService.readRawProjectFiles(projectPath)
+      if (result.success) {
+        // A retrieval lives in scratch and is pruned behind the user, so it must not appear under Recent as if it were a real project.
+        if (!isRetrievedProjectPath(projectPath)) {
+          await this.projectService.updateProjectHistory(projectPath)
+        }
+        // Set last, so a failed open leaves the root on the project still open.
+        this.currentProjectPath = projectPath
+      }
+      return result
+    } catch (_error) {
+      return {
+        success: false,
+        error: { title: 'Error reading project', description: 'Failed to read project files' },
+      }
+    } finally {
+      // The native Recent submenu is built from the history this open just changed.
+      this.handleWindowRebuildMenu()
+    }
+  }
+
+  handlePickPlcopenImportFile = async (_event: IpcMainInvokeEvent) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getPlcopenImportFilePath(windowManager)
+        return res
+      }
+      logger.error('Window object not defined')
+      return { success: false, error: { title: 'Internal error', description: 'Window object not defined' } }
+    } catch (error) {
+      logger.error('Error picking PLCopen import file: ' + getErrorMessage(error))
+      return { success: false, error: { title: 'Internal error', description: getErrorMessage(error) } }
+    }
+  }
+
+  handleExportPlcopenFile = async (_event: IpcMainInvokeEvent, defaultFileName: string, xml: string) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getPlcopenExportSavePath(windowManager, defaultFileName, xml)
+        return res
+      }
+      logger.error('Window object not defined')
+      return { success: false, error: { title: 'Internal error', description: 'Window object not defined' } }
+    } catch (error) {
+      logger.error('Error exporting PLCopen file: ' + getErrorMessage(error))
+      return { success: false, error: { title: 'Internal error', description: getErrorMessage(error) } }
+    }
+  }
+
+  handleExportPdfFile = async (_event: IpcMainInvokeEvent, defaultFileName: string, bytes: Uint8Array) => {
+    const windowManager = this.mainWindow
+    try {
+      if (windowManager) {
+        const res = await getPdfExportSavePath(windowManager, defaultFileName, bytes)
+        return res
+      }
+      logger.error('Window object not defined')
+      return { success: false, error: { title: 'Internal error', description: 'Window object not defined' } }
+    } catch (error) {
+      logger.error('Error exporting PDF file: ' + getErrorMessage(error))
+      return { success: false, error: { title: 'Internal error', description: getErrorMessage(error) } }
+    }
+  }
+
+  // Pou-related handlers
+  handleCreatePouFile = async (_event: IpcMainInvokeEvent, props: CreatePouFileProps) => {
+    try {
+      const response = await this.pouService.createPouFile(props)
+      return response
+    } catch (error) {
+      logger.error('Error creating POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error creating POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+  handleDeletePouFile = async (_event: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const response = await this.pouService.deletePouFile(filePath)
+      return response
+    } catch (error) {
+      logger.error('Error deleting POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error deleting POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+  handleRenamePouFile = async (
+    _event: IpcMainInvokeEvent,
+    data: {
+      filePath: string
+      newFileName: string
+      fileContent?: unknown
+    },
+  ) => {
+    try {
+      const response = await this.pouService.renamePouFile(data)
+      return response
+    } catch (error) {
+      logger.error('Error renaming POU file: ' + getErrorMessage(error))
+      return {
+        success: false,
+        error: {
+          title: 'Error renaming POU file',
+          description: 'Please try again',
+          error,
+        },
+      }
+    }
+  }
+
+  // App and system handlers
+  handleOpenExternalLink = async (_event: IpcMainInvokeEvent, url: string) => {
+    // `shell.openExternal` hands anything to the OS, so a `file:` or `javascript:` URL
+    // arriving over IPC must not reach it.
+    if (typeof url !== 'string' || !isWebUrl(url)) {
+      logger.warn(`Refused to open a non-web external link: ${String(url).slice(0, 120)}`)
+      return { success: false, error: 'Only http(s) links can be opened.' }
+    }
+
+    try {
+      await shell.openExternal(url)
+      return { success: true }
+    } catch (error) {
+      logger.error('Error opening external link: ' + getErrorMessage(error))
+      return { success: false, error }
+    }
+  }
+  handleGetSystemInfo = () => {
+    const appStore = this.store as unknown as { get: (key: string) => unknown }
+    const savedTheme = appStore.get('theme')
+    if (savedTheme === 'dark' || savedTheme === 'light') {
+      nativeTheme.themeSource = savedTheme
+    }
+
+    const isWindowMaximized = this.mainWindow && !this.mainWindow.isDestroyed() ? this.mainWindow.isMaximized() : false
+
+    return {
+      OS: platform,
+      architecture: 'x64',
+      prefersDarkMode: nativeTheme.shouldUseDarkColors,
+      isWindowMaximized,
+    }
+  }
+
+  /**
+   * Loads bundled .stlib archives from `<resources>/strucpp/libs/`, alphabetically for a
+   * deterministic tree. Errors propagate rather than silently dropping libraries.
+   */
+  handleLibrariesLoadAll = async (): Promise<unknown[]> => this.libraryManagerModule.loadAll()
+  handleLibrariesListInstalled = async () => this.libraryManagerModule.listInstalled()
+  handleLibrariesInstallFromFile = async () => {
+    if (!this.mainWindow) return { success: false, error: 'No main window' }
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      title: 'Install Library',
+      filters: [
+        { name: 'Library files', extensions: ['stlib', 'lib', 'library'] },
+        { name: 'STruC++ archive', extensions: ['stlib'] },
+        { name: 'CODESYS library', extensions: ['lib', 'library'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: true, canceled: true }
+    }
+    const installResult = await this.libraryManagerModule.installFromFile(result.filePaths[0])
+    if (installResult.success && !installResult.canceled) {
+      this.mainWindow.webContents.send('libraries:changed')
+    }
+    return installResult
+  }
+  handleLibrariesUninstall = async (_event: IpcMainInvokeEvent, name: string) => {
+    const result = this.libraryManagerModule.uninstall(name)
+    if (result.success) {
+      this.mainWindow?.webContents.send('libraries:changed')
+    }
+    return result
+  }
+
+  /**
+   * Catalog browse, proxied through the shared `listPublicLibraries` client since the
+   * renderer can't hit autonomy-edge directly (CSP / cross-origin). Errors are returned
+   * in a `{ success: false, error }` envelope rather than thrown across the IPC boundary.
+   */
+  // ===================== EDGE ACCOUNT =====================
+  // Signing in is optional throughout; no handler here is an error the editor must recover from.
+
+  handleEdgeFetchUser = (_event: IpcMainInvokeEvent): Promise<EdgeUserRead> => fetchEdgeUser()
+
+  handleEdgeFetchPlanCaption = (_event: IpcMainInvokeEvent): Promise<string | null> => fetchEdgePlanCaption()
+
+  handleEdgeSignIn = (
+    _event: IpcMainInvokeEvent,
+    credentials: { email: string; password: string },
+  ): Promise<EdgeSignInOutcome> => {
+    // Validated rather than trusted: this crosses IPC, and a malformed payload must
+    // come back as a failed sign-in instead of throwing inside the handler and
+    // rejecting the invoke with a stack trace the UI cannot render.
+    if (typeof credentials?.email !== 'string' || typeof credentials?.password !== 'string') {
+      return Promise.resolve({ status: 'failed' })
+    }
+
+    return signInToEdge(credentials.email, credentials.password)
+  }
+
+  handleEdgeSignOut = (_event: IpcMainInvokeEvent): Promise<void> => signOutOfEdge()
+
+  handleEdgeIsSessionPersistent = (_event: IpcMainInvokeEvent): Promise<boolean> =>
+    Promise.resolve(isEncryptionAvailable())
+
+  // The cloud round trip. Reads and writes go through the same session the account
+  // handlers use, so a revoked token is renewed once rather than per call site.
+
+  handleEdgeProjectsListRecent = (_event: IpcMainInvokeEvent, limit: unknown): Promise<CloudProjectsResult> => {
+    // Clamped rather than trusted: this crosses IPC, and an absurd limit would be
+    // forwarded straight into the API's own bounds check as a 400.
+    const requested = typeof limit === 'number' && Number.isInteger(limit) ? limit : 5
+
+    return listRecentCloudProjects(Math.min(Math.max(requested, 1), 50))
+  }
+
+  handleEdgeProjectsListInFolder = (_event: IpcMainInvokeEvent, folderId: unknown): Promise<CloudProjectsResult> => {
+    // Checked rather than trusted: this crosses IPC. A folder id that is not a
+    // non-empty string reads as "could not list", never as an empty folder.
+    if (typeof folderId !== 'string' || folderId.length === 0) {
+      return Promise.resolve({ status: 'unreachable' })
+    }
+
+    return listCloudProjectsInFolder(folderId)
+  }
+
+  handleEdgeProjectsRead = (_event: IpcMainInvokeEvent, projectId: unknown): Promise<RawProjectFiles> => {
+    if (typeof projectId !== 'string' || projectId.length === 0) {
+      return Promise.resolve({
+        success: false,
+        error: { title: 'Failed to open project', description: 'No project id was given.' },
+      })
+    }
+
+    return readCloudProject(projectId)
+  }
+
+  /**
+   * Takes `unknown` and validates, like the channels either side of it: a TypeScript
+   * annotation on an IPC argument survives nothing, and the backend deletes by
+   * omission, so a missing `pouFiles` would delete every POU in the project.
+   */
+  handleEdgeProjectsSaveProject = (
+    _event: IpcMainInvokeEvent,
+    files: unknown,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const parsed = WriteProjectFilesSchema.safeParse(files)
+
+    if (!parsed.success) {
+      return Promise.resolve({ success: false, error: 'The editor made an invalid save request.' })
+    }
+
+    return saveCloudProject(parsed.data)
+  }
+
+  handleEdgeProjectsSaveFile = (
+    _event: IpcMainInvokeEvent,
+    filePath: unknown,
+    content: unknown,
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (typeof filePath !== 'string' || filePath.length === 0) {
+      return Promise.resolve({ success: false, error: 'No file path was given.' })
+    }
+
+    return saveCloudFile(filePath, content)
+  }
+
+  handleEdgeEditSessionOpen = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    client: unknown,
+    previousSessionId: unknown,
+  ): Promise<EditSessionOpened> => {
+    const parsed = EditSessionClientSchema.safeParse(client)
+
+    if (
+      !isNonEmptyString(projectId) ||
+      !parsed.success ||
+      (previousSessionId !== undefined && !isNonEmptyString(previousSessionId))
+    ) {
+      return Promise.resolve({ status: 'unavailable', permanent: true })
+    }
+
+    return openEditSession(projectId, parsed.data, previousSessionId)
+  }
+
+  handleEdgeEditSessionHeartbeat = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    sessionId: unknown,
+  ): Promise<EditSessionBeat> => {
+    if (!isNonEmptyString(projectId) || !isNonEmptyString(sessionId)) {
+      return Promise.resolve({ status: 'unknown' })
+    }
+
+    return heartbeatEditSession(projectId, sessionId)
+  }
+
+  handleEdgeEditSessionClose = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    sessionId: unknown,
+    closedBySessionId: unknown,
+  ): Promise<boolean> => {
+    if (
+      !isNonEmptyString(projectId) ||
+      !isNonEmptyString(sessionId) ||
+      (closedBySessionId !== undefined && !isNonEmptyString(closedBySessionId))
+    ) {
+      return Promise.resolve(false)
+    }
+
+    return closeEditSession(projectId, sessionId, closedBySessionId)
+  }
+
+  // Validate before building a URL: a non-string id interpolates as `undefined`. And `undefined`
+  // arriving as `null` is the difference between "commit everything" and "commit no files".
+
+  /** Non-empty string, or nothing. */
+  private static vcString(value: unknown): string | undefined {
+    return typeof value === 'string' && value.length > 0 ? value : undefined
+  }
+
+  private static vcRecord(value: unknown): Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value))
+      : {}
+  }
+
+  /** An array of non-empty strings, or nothing — never a partially valid list. */
+  private static vcStringArray(value: unknown): string[] | undefined {
+    if (!Array.isArray(value)) {
+      return undefined
+    }
+
+    const strings = value.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+
+    return strings.length === value.length ? strings : undefined
+  }
+
+  private static readonly VC_BAD_REQUEST = {
+    ok: false,
+    failure: { kind: 'http', status: 400, message: 'The editor made an invalid version-control request.' },
+  } as const satisfies VersionControlResult<never>
+
+  handleEdgeUploadListFolders = (): Promise<CloudFoldersResult> => listCloudFolders()
+
+  /**
+   * Validates before it touches the filesystem: `projectPath` and `parentFolderId` must
+   * be non-empty strings, and `visibility` is narrowed rather than forwarded, since a typo could otherwise publish a project as public.
+   */
+  handleEdgeUploadProject = (_event: IpcMainInvokeEvent, params: unknown): Promise<UploadProjectResult> => {
+    const source = MainProcessBridge.vcRecord(params)
+    const projectPath = MainProcessBridge.vcString(source.projectPath)
+    const parentFolderId = MainProcessBridge.vcString(source.parentFolderId)
+
+    if (!projectPath || !parentFolderId) {
+      return Promise.resolve({
+        status: 'failed',
+        failure: { reason: 'unreadable', message: 'The editor made an invalid upload request.' },
+      })
+    }
+
+    return uploadProjectToCloud({
+      projectPath,
+      parentFolderId,
+      projectName: MainProcessBridge.vcString(source.projectName),
+      // Anything but an explicit 'public' stays private. Guessing in the other direction
+      // would publish someone's work to the world on a malformed value.
+      visibility: source.visibility === 'public' ? 'public' : 'private',
+    })
+  }
+
+  handleEdgeVcBranchDiffWithBase = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    source: unknown,
+    target: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const from = MainProcessBridge.vcString(source)
+    const to = MainProcessBridge.vcString(target)
+
+    return id && from && to ? getBranchDiffWithBase(id, from, to) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcMergeBranches = (_event: IpcMainInvokeEvent, params: unknown): Promise<VersionControlResult<unknown>> => {
+    const source = MainProcessBridge.vcRecord(params)
+    const projectId = MainProcessBridge.vcString(source.projectId)
+    const sourceBranch = MainProcessBridge.vcString(source.sourceBranch)
+    const targetBranch = MainProcessBridge.vcString(source.targetBranch)
+
+    if (!projectId || !sourceBranch || !targetBranch) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    // Resolutions decide file CONTENT, so a malformed map is refused rather than partially
+    // forwarded: dropping an entry would merge with the wrong side of a conflict silently.
+    let resolutions: Record<string, string> | undefined
+
+    if (source.resolutions !== undefined) {
+      const record = MainProcessBridge.vcRecord(source.resolutions)
+      const entries = Object.entries(record)
+
+      if (!entries.every(([key, value]) => key.length > 0 && typeof value === 'string')) {
+        return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+      }
+
+      resolutions = Object.fromEntries(entries.map(([key, value]) => [key, String(value)]))
+    }
+
+    return mergeBranches({
+      projectId,
+      sourceBranch,
+      targetBranch,
+      commitMessage: MainProcessBridge.vcString(source.commitMessage),
+      resolutions,
+    })
+  }
+
+  handleEdgeVcListBranches = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    return id ? listBranches(id) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcCreateBranch = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    name: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const branchName = MainProcessBridge.vcString(name)
+
+    return id && branchName ? createBranch(id, branchName) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcDeleteBranch = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    branchId: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const branch = MainProcessBridge.vcString(branchId)
+
+    return id && branch ? deleteBranch(id, branch) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcSwitchBranch = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    branchName: unknown,
+    strategy: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const name = MainProcessBridge.vcString(branchName)
+
+    if (!id || !name) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    // Anything but an explicit 'carry' discards, which is the endpoint's own default and
+    // the safer reading of a malformed value: carrying edits on a guess could move work
+    // onto a branch the user did not mean to touch.
+    return switchBranch(id, name, strategy === 'carry' ? 'carry' : 'discard')
+  }
+
+  handleEdgeVcPreviewSwitchCarry = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    targetBranch: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const target = MainProcessBridge.vcString(targetBranch)
+
+    return id && target ? previewSwitchCarry(id, target) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcListCommits = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    options: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    if (!id) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    const source = MainProcessBridge.vcRecord(options)
+    const limit = typeof source.limit === 'number' && Number.isInteger(source.limit) ? source.limit : undefined
+    const offset = typeof source.offset === 'number' && Number.isInteger(source.offset) ? source.offset : undefined
+
+    return listCommits(id, { limit, offset, branch: MainProcessBridge.vcString(source.branch) })
+  }
+
+  handleEdgeVcCreateCommit = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    message: unknown,
+    files: unknown,
+    branch: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const commitMessage = MainProcessBridge.vcString(message)
+
+    // Refused rather than dropped: `vcStringArray` answers undefined for a partially
+    // valid list, and undefined means "all files" to `createCommit`.
+    if (files !== undefined && MainProcessBridge.vcStringArray(files) === undefined) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    return id && commitMessage
+      ? createCommit(id, commitMessage, MainProcessBridge.vcStringArray(files), MainProcessBridge.vcString(branch))
+      : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcGetCommitFiles = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    hash: unknown,
+    branch: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const commitHash = MainProcessBridge.vcString(hash)
+
+    return id && commitHash
+      ? getCommitFiles(id, commitHash, MainProcessBridge.vcString(branch))
+      : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcRestoreCommit = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    hash: unknown,
+    branch: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const commitHash = MainProcessBridge.vcString(hash)
+
+    return id && commitHash
+      ? restoreCommit(id, commitHash, MainProcessBridge.vcString(branch))
+      : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcGetChanges = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    includeContent: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    return id ? getChanges(id, includeContent === true) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcDiscardChanges = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    files: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    if (!id) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    // A malformed list is refused rather than dropped: silently discarding nothing when
+    // the user asked to discard three files would look like the button is broken, and
+    // silently discarding everything would destroy work.
+    if (files !== undefined && MainProcessBridge.vcStringArray(files) === undefined) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    return discardChanges(id, MainProcessBridge.vcStringArray(files))
+  }
+
+  handleEdgeVcListStashes = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    return id ? listStashes(id) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcCreateStash = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    message: unknown,
+    files: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+
+    // Same refusal as commit and discard: undefined means "all files" downstream, so a
+    // malformed list would stash the whole project instead of the selection.
+    if (files !== undefined && MainProcessBridge.vcStringArray(files) === undefined) {
+      return Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+    }
+
+    return id
+      ? createStash(id, MainProcessBridge.vcString(message), MainProcessBridge.vcStringArray(files))
+      : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcApplyStash = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    ref: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const stashRef = MainProcessBridge.vcString(ref)
+
+    return id && stashRef ? applyStash(id, stashRef) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcPopStash = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    ref: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const stashRef = MainProcessBridge.vcString(ref)
+
+    return id && stashRef ? popStash(id, stashRef) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  handleEdgeVcDropStash = (
+    _event: IpcMainInvokeEvent,
+    projectId: unknown,
+    ref: unknown,
+  ): Promise<VersionControlResult<unknown>> => {
+    const id = MainProcessBridge.vcString(projectId)
+    const stashRef = MainProcessBridge.vcString(ref)
+
+    return id && stashRef ? dropStash(id, stashRef) : Promise.resolve(MainProcessBridge.VC_BAD_REQUEST)
+  }
+
+  /**
+   * The live streams, by id — the only thing holding an open upstream request, so
+   * every way a stream can end (finish, fail, abort, window closing) must remove its entry.
+   */
+  private readonly aiStreams = new Map<string, AiStream>()
+
+  /**
+   * Narrows an IPC argument to a request body. Not `vcRecord`, which answers `{}` for
+   * anything unusable — an empty body is well-formed and would 400 from Edge instead of failing locally.
+   */
+  private static aiBody(value: unknown): Record<string, unknown> | undefined {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? Object.fromEntries(Object.entries(value))
+      : undefined
+  }
+
+  /** A count the API will accept, or nothing — never `NaN`, never negative. */
+  private static aiCount(value: unknown): number | undefined {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+  }
+
+  private static readonly AI_BAD_REQUEST = {
+    ok: false,
+    failure: { kind: 'http', status: 400, message: 'The editor made an invalid AI request.' },
+  } as const satisfies EdgeAiResult<never>
+
+  handleEdgeAiEntitlements = () => fetchAiEntitlements()
+
+  handleEdgeAiUsage = () => fetchAiUsage()
+
+  handleEdgeAiCredits = () => fetchAiCredits()
+
+  /**
+   * Warms the prompt cache; `warmAi` answers nothing, so the result is manufactured
+   * here so every `edge-ai:*` channel answers the same union.
+   */
+  handleEdgeAiWarm = async (): Promise<EdgeAiResult<null>> => {
+    await warmAi()
+
+    return { ok: true, data: null }
+  }
+
+  /**
+   * Telemetry, refused unless the event is one this build knows — the name becomes an
+   * analytics record, so an unchecked string could create an event name nobody can query out again.
+   */
+  handleEdgeAiTelemetry = async (
+    _event: IpcMainInvokeEvent,
+    name: unknown,
+    data: unknown,
+  ): Promise<EdgeAiResult<null>> => {
+    const telemetryEvent = toAiTelemetryEvent(name)
+
+    if (!telemetryEvent) {
+      // Loud, since the likeliest cause is a new event added to the port's union but not
+      // here — a dropped analytics event is otherwise invisible. Refused, never thrown.
+      logger.warn(`Refused an unknown AI telemetry event: ${typeof name === 'string' ? name : `(${typeof name})`}`)
+
+      return MainProcessBridge.AI_BAD_REQUEST
+    }
+
+    await sendAiTelemetry(telemetryEvent, MainProcessBridge.vcRecord(data))
+
+    return { ok: true, data: null }
+  }
+
+  /**
+   * Lists conversations; every option is narrowed rather than forwarded, since each is
+   * stringified into the query (an object would become `limit=[object Object]`).
+   */
+  handleEdgeAiConversationsList = (_event: IpcMainInvokeEvent, options: unknown) => {
+    const source = MainProcessBridge.vcRecord(options)
+
+    return listConversations({
+      projectId: MainProcessBridge.vcString(source.projectId),
+      limit: MainProcessBridge.aiCount(source.limit),
+      offset: MainProcessBridge.aiCount(source.offset),
+    })
+  }
+
+  handleEdgeAiConversationsGet = (_event: IpcMainInvokeEvent, conversationId: unknown) => {
+    const id = MainProcessBridge.vcString(conversationId)
+
+    return id ? getConversation(id) : Promise.resolve(MainProcessBridge.AI_BAD_REQUEST)
+  }
+
+  handleEdgeAiConversationsCreate = (_event: IpcMainInvokeEvent, body: unknown) => {
+    const payload = MainProcessBridge.aiBody(body)
+
+    return payload ? createConversation(payload) : Promise.resolve(MainProcessBridge.AI_BAD_REQUEST)
+  }
+
+  handleEdgeAiConversationsRename = (_event: IpcMainInvokeEvent, conversationId: unknown, body: unknown) => {
+    const id = MainProcessBridge.vcString(conversationId)
+    const payload = MainProcessBridge.aiBody(body)
+
+    return id && payload ? renameConversation(id, payload) : Promise.resolve(MainProcessBridge.AI_BAD_REQUEST)
+  }
+
+  handleEdgeAiConversationsDelete = (_event: IpcMainInvokeEvent, conversationId: unknown) => {
+    const id = MainProcessBridge.vcString(conversationId)
+
+    return id ? deleteConversation(id) : Promise.resolve(MainProcessBridge.AI_BAD_REQUEST)
+  }
+
+  /**
+   * Opens a stream and answers with the id its events will carry. Generated here, not
+   * accepted from the renderer, since it keys the cancellation map — a reused id would abort someone else's answer.
+   */
+  handleEdgeAiStreamStart = (event: IpcMainInvokeEvent, params: unknown): EdgeAiResult<{ streamId: string }> => {
+    const source = MainProcessBridge.vcRecord(params)
+    const kind = source.kind
+    const body = MainProcessBridge.aiBody(source.body)
+
+    if ((kind !== 'chat' && kind !== 'completion') || !body) {
+      return MainProcessBridge.AI_BAD_REQUEST
+    }
+
+    const streamId = randomUUID()
+    const sender = event.sender
+
+    this.watchAiSender(sender)
+
+    // Registered before the request starts: the sink can fire on this same tick, so a
+    // chunk delivered first would be dropped. `cancel` is late-bound for the same reason.
+    let handle: AiStreamHandle | null = null
+    let cancelled = false
+
+    this.aiStreams.set(streamId, {
+      cancel: () => {
+        cancelled = true
+        handle?.cancel()
+      },
+      sender,
+    })
+
+    // `onStatus` is left unimplemented: it's optional/diagnostic, and a refusal already
+    // reaches the consumer as an `edge-ai:error` failure.
+    const sink: AiStreamSink = {
+      // Crosses whole — flattening to text would strip `tool_use`, and the renderer couldn't run a call it never saw.
+      onEvent: (event) => this.sendAiStreamEvent(streamId, 'edge-ai:event', { event }),
+      onEnd: () => {
+        this.sendAiStreamEvent(streamId, 'edge-ai:end', {})
+        this.forgetAiStream(streamId)
+      },
+      onFailure: (failure) => {
+        this.sendAiStreamEvent(streamId, 'edge-ai:error', { failure })
+        this.forgetAiStream(streamId)
+      },
+    }
+
+    try {
+      // The body crosses as-is, narrowed no further: the request shape belongs to the
+      // edge-ai module and its route, not a second copy here.
+      handle = kind === 'chat' ? streamAiChat(body, sink) : streamAiCompletion(body, sink)
+    } catch (error) {
+      // Failures are supposed to arrive through the sink, so a throw here means the
+      // request never started; clean up before reporting, or the entry can never be removed.
+      this.forgetAiStream(streamId)
+
+      return { ok: false, failure: { kind: 'unreachable', message: getErrorMessage(error) } }
+    }
+
+    // An abort that arrived while the request was being opened still has to
+    // land — at that point `cancel` above could only set the flag.
+    if (cancelled) {
+      handle.cancel()
+    }
+
+    return { ok: true, data: { streamId } }
+  }
+
+  /**
+   * Cancels a stream on the renderer's behalf. An id that's no longer live answers as
+   * success, not an error, since stop racing the model finishing is ordinary; cancelling emits no event, since the renderer already knows.
+   */
+  handleEdgeAiStreamAbort = (_event: IpcMainInvokeEvent, streamId: unknown): EdgeAiResult<null> => {
+    const id = MainProcessBridge.vcString(streamId)
+
+    if (!id) {
+      return MainProcessBridge.AI_BAD_REQUEST
+    }
+
+    this.abortAiStream(id)
+
+    return { ok: true, data: null }
+  }
+
+  /**
+   * Pushes one event of a live stream to its window. `send` on a destroyed
+   * `webContents` throws, so a destroyed target ends the stream rather than skipping the frame.
+   */
+  private sendAiStreamEvent(streamId: string, channel: string, payload: Record<string, unknown>) {
+    const stream = this.aiStreams.get(streamId)
+
+    if (!stream) {
+      return
+    }
+
+    if (stream.sender.isDestroyed()) {
+      this.abortAiStream(streamId)
+      return
+    }
+
+    stream.sender.send(channel, { streamId, ...payload })
+  }
+
+  private forgetAiStream(streamId: string) {
+    this.aiStreams.delete(streamId)
+  }
+
+  /** Renderers this bridge is watching; a WeakSet so a closed window's entry goes with it. */
+  private readonly watchedAiSenders = new WeakSet<WebContents>()
+
+  /**
+   * `destroyed` alone misses a reload, which kills the JS context without destroying
+   * `WebContents` — Edge would still charge for an answer nobody reads, so navigation
+   * and process-gone are hooked too.
+   */
+  private watchAiSender(sender: WebContents) {
+    if (this.watchedAiSenders.has(sender)) {
+      return
+    }
+
+    this.watchedAiSenders.add(sender)
+
+    const abortAll = () => this.abortAiStreamsFor(sender)
+
+    sender.on('destroyed', abortAll)
+    sender.on('render-process-gone', abortAll)
+    sender.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument) {
+        abortAll()
+      }
+    })
+  }
+
+  private abortAiStreamsFor(sender: WebContents) {
+    for (const [streamId, stream] of this.aiStreams) {
+      if (stream.sender === sender) {
+        this.abortAiStream(streamId)
+      }
+    }
+  }
+
+  /** Forget a stream that has NOT finished, cancelling the request it holds open. */
+  private abortAiStream(streamId: string) {
+    const stream = this.aiStreams.get(streamId)
+
+    if (!stream) {
+      return
+    }
+
+    this.forgetAiStream(streamId)
+    stream.cancel()
+  }
+
+  handleCatalogList = async (
+    _event: IpcMainInvokeEvent,
+    args: ListPublicLibrariesArgs,
+  ): Promise<{ success: true; data: ListPublicLibrariesResponse } | { success: false; error: string }> => {
+    try {
+      const data = await listPublicLibraries(this.catalogTransport, args ?? {})
+      return { success: true, data }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  }
+
+  handleCatalogInstallMany = async (_event: IpcMainInvokeEvent, libraries: PublicLibrary[]) => {
+    if (!Array.isArray(libraries) || libraries.length === 0) {
+      return { results: [] }
+    }
+    const validLibraries = libraries.filter((row): row is PublicLibrary => PublicLibrarySchema.safeParse(row).success)
+    if (validLibraries.length === 0) {
+      return { results: [] }
+    }
+    const batch = await this.libraryManagerModule.installFromCatalog(validLibraries)
+    // Fire one change event for the whole batch — saves N renderer
+    // refreshes for an N-library install.
+    if (batch.results.some((r) => r.success)) {
+      this.mainWindow?.webContents.send('libraries:changed')
+    }
+    return batch
+  }
+  handleStoreRetrieveRecent = async () => {
+    const pathToUserDataFolder = join(app.getPath('userData'), 'User')
+    const pathToUserHistoryFolder = join(pathToUserDataFolder, 'History')
+    const projectsFilePath = join(pathToUserHistoryFolder, 'projects.json')
+    const response = await this.projectService.readProjectHistory(projectsFilePath)
+    try {
+      return response
+    } catch (error) {
+      logger.error('Error reading history file: ' + getErrorMessage(error))
+      return []
+    }
+  }
+
+  /**
+   * Puts a project on the recent list without reading it (Save As). Still refuses the
+   * scratch root, since a Save As target the user chose can't have come from that flow.
+   */
+  handleTrackRecentProject = async (_event: unknown, projectPath: unknown) => {
+    // `unknown`, then narrowed: a TypeScript annotation on an IPC parameter is
+    // a claim about the caller, not a check on the payload, and what arrives
+    // here is written to `projects.json`.
+    if (typeof projectPath !== 'string' || projectPath.trim() === '') {
+      return { success: false, error: 'A project path is required to track a project.' }
+    }
+    // Absolute, because Recent is read back later and from elsewhere: a
+    // relative path would be resolved against whatever the working directory
+    // happened to be, which is never what the user picked in Save As.
+    if (!isAbsolute(projectPath)) {
+      return { success: false, error: 'A project path must be absolute to be tracked.' }
+    }
+    if (isRetrievedProjectPath(projectPath)) {
+      return { success: false, error: 'A retrieved project is not tracked until it has a location.' }
+    }
+    try {
+      await this.projectService.updateProjectHistory(projectPath)
+      return { success: true }
+    } catch (error) {
+      logger.error('Error tracking project in history: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /** Drops a project entry from `projects.json` (recent list); disk is untouched. */
+  handleRemoveProjectFromRecent = async (_event: unknown, projectPath: string) => {
+    try {
+      await this.projectService.removeProjectFromHistory(projectPath)
+      return { success: true }
+    } catch (error) {
+      logger.error('Error removing project from history: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /** Recursively deletes a project directory and drops it from the recent list; the destructive `fs.rm` is gated by `deleteProject`'s own `project.json` check. */
+  handleDeleteProject = async (_event: unknown, projectPath: string) => {
+    try {
+      return await this.projectService.deleteProject(projectPath)
+    } catch (error) {
+      logger.error('Error deleting project: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+  handleAppRequestQuit = () => this.quitCoordinator.requestQuit()
+  handleAppQuitReady = () => {
+    this.quitPromptReady = true
+  }
+  handleAppQuitUnready = () => {
+    this.quitPromptReady = false
+  }
+
+  /** Whether the renderer is loaded, alive and listening for the quit prompt. */
+  canPromptQuit(): boolean {
+    const webContents = this.mainWindow?.webContents
+    return this.quitPromptReady && !!webContents && !webContents.isCrashed()
+  }
+  handleAppQuit = () => this.quitCoordinator.confirmQuit()
+
+  // Compiler service handlers
+  handleRunCompileProgram = (event: IpcMainEvent, args: CompileProgramIpcArgs) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileProgram(args, mainProcessPort, this).catch((error) => {
+      mainProcessPort.postMessage({
+        logLevel: 'error',
+        message: `${getErrorMessage(error)}\nStopping compilation process.`,
+      })
+      mainProcessPort.postMessage({ closePort: true })
+      mainProcessPort.close()
+    })
+  }
+
+  handleRunDebugCompilation = (event: IpcMainEvent, args: Array<string | PLCProjectData>) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileForDebugger(args, mainProcessPort, this)
+  }
+
+  handleRunCompileLibrary = (event: IpcMainEvent, args: CompileLibraryIpcArgs) => {
+    const mainProcessPort = event.ports[0]
+    void this.compilerModule.compileLibrary(args, mainProcessPort, this)
+  }
+
+  /**
+   * Resolves enabled library names to parsed `.stlib` archives (bundled libs always
+   * included); missing names come back for the caller to surface. Feeds both builds, so
+   * verify can't drift from the actual compile.
+   */
+  loadEnabledArchives = (enabledNames: string[]): { archives: unknown[]; missing: string[] } =>
+    this.libraryManagerModule.loadEnabledArchives(enabledNames)
+
+  handleWindowControlsClose = () => this.mainWindow?.close()
+  handleWindowControlsClosed = () => this.mainWindow?.destroy()
+  handleWindowControlsHide = () => this.mainWindow?.hide()
+  handleWindowControlsMinimize = () => this.mainWindow?.minimize()
+  handleWindowControlsMaximize = () => {
+    if (this.mainWindow?.isMaximized()) {
+      this.mainWindow?.restore()
+    } else {
+      this.mainWindow?.maximize()
+    }
+  }
+  handleWindowReload = () => {
+    // The reload wipes the renderer's store to 'disconnected', so the simulator session
+    // must go with it, or main keeps a session the reloaded UI has no idea about (same
+    // reasoning as `watchAiSender` for an AI stream mid-answer).
+    this.stopSimulator()
+
+    const contents = this.mainWindow?.webContents
+
+    if (contents) {
+      this.abortAiStreamsFor(contents)
+    }
+
+    this.reloadConfirmed = true
+    contents?.reload()
+  }
+  handleWindowRebuildMenu = () => {
+    void this.menuBuilder.buildMenu().catch((error) => {
+      logger.error('Error rebuilding application menu:', error)
+    })
+  }
+
+  handleWindowProjectOpen = (_event: IpcMainEvent, open: unknown) => {
+    if (typeof open !== 'boolean') return
+    if (!open) this.currentProjectPath = null
+    void this.menuBuilder.setProjectOpen(open).catch((error) => {
+      logger.error('Error rebuilding application menu:', error)
+    })
+  }
+
+  // Hardware handlers
+  handleHardwareGetAvailableCommunicationPorts = async () => this.hardwareModule.getAvailableSerialPorts()
+  handleHardwareGetAvailableBoards = async () => this.hardwareModule.getAvailableBoards()
+  handleHardwareRefreshCommunicationPorts = async () => this.hardwareModule.getAvailableSerialPorts()
+  handleHardwareRefreshAvailableBoards = async () => this.hardwareModule.getAvailableBoards()
+
+  // Package manager handlers
+  handlePackagesImportFromFile = async () => {
+    if (!this.mainWindow) return { success: false, error: 'No main window' }
+    const result = await dialog.showOpenDialog(this.mainWindow, {
+      title: 'Import Board Package',
+      filters: [{ name: 'VPP Package', extensions: ['vpp'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, canceled: true }
+    }
+    const importResult = await this.packageManagerModule.importFromFile(result.filePaths[0])
+    if (importResult.success) {
+      this.mainWindow.webContents.send('packages:boards-updated')
+    }
+    return importResult
+  }
+  handlePackagesInstallFromUrl = async (
+    _event: IpcMainInvokeEvent,
+    args: { packageId: string; version: string; downloadUrl: string },
+  ) => {
+    const { packageId, version, downloadUrl } = args
+    // Downloaded in main since the renderer can't reach the install pipeline directly;
+    // `downloadUrl` always points at the VPP catalog backend, never S3 directly.
+    let tempPath: string | null = null
+    try {
+      const response = await fetch(downloadUrl)
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Download failed: ${response.status} ${response.statusText}`,
+        }
+      }
+      const buffer = new Uint8Array(await response.arrayBuffer())
+      tempPath = join(app.getPath('temp'), `openplc-vpp-${packageId}-${version}-${randomUUID()}.vpp`)
+      await writeFile(tempPath, buffer)
+      const importResult = await this.packageManagerModule.importFromFile(tempPath)
+      if (importResult.success) {
+        this.mainWindow?.webContents.send('packages:boards-updated')
+      }
+      return importResult
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) }
+    } finally {
+      if (tempPath) {
+        // Best-effort cleanup — never fail the install because the temp
+        // file lingered; OS will reap it on reboot anyway.
+        await unlink(tempPath).catch(() => {})
+      }
+    }
+  }
+  handlePackagesListInstalled = async () => this.packageManagerModule.listInstalled()
+  handlePackagesUninstall = async (_event: IpcMainInvokeEvent, packageId: string) => {
+    const result = this.packageManagerModule.uninstall(packageId)
+    if (result.success) {
+      this.mainWindow?.webContents.send('packages:boards-updated')
+    }
+    return result
+  }
+  // Re-verify installed VPP signatures (invoked by the renderer when a project
+  // opens) and return the ids removed. If anything was dropped, notify the
+  // renderer so the board/device list refreshes via the existing subscription.
+  handlePackagesVerifySignatures = async (): Promise<string[]> => {
+    const removed = this.packageManagerModule.verifyInstalledSignatures()
+    if (removed.length > 0) {
+      this.mainWindow?.webContents.send('packages:boards-updated')
+    }
+    return removed
+  }
+  handlePackagesGetManifest = async (_event: IpcMainInvokeEvent, packageId: string) =>
+    this.packageManagerModule.getInstalledPackageManifest(packageId)
+
+  handlePackagesGetPin = async (_event: IpcMainInvokeEvent, packageId: string) =>
+    this.packageManagerModule.getPackagePin(packageId)
+
+  // Utility handlers
+  handleUtilGetPreviewImage = async (_event: IpcMainInvokeEvent, image: string, packagePath?: string) =>
+    this.hardwareModule.getBoardImagePreview(image, packagePath)
+  handleUtilLog = (_: IpcMainEvent, { level, message }: { level: 'info' | 'error'; message: string }) => {
+    logger[level](message)
+  }
+  handleReadDebugFile = async (_event: IpcMainInvokeEvent, projectPath: string, boardTarget: string) => {
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      if (path.isAbsolute(boardTarget) || boardTarget.includes('..') || boardTarget.includes(path.sep)) {
+        return { success: false, error: 'Invalid board target' }
+      }
+
+      // STruC++ writes debug-map.json alongside generated_debug.cpp.
+      // Consumed by the renderer via parseDebugMap. Resolved through the build
+      // workspace so a cloud project reads the scratch copy the build wrote.
+      const debugMapPath = path.resolve(
+        resolveBuildWorkspace(projectPath),
+        'build',
+        boardTarget,
+        'src',
+        'debug-map.json',
+      )
+      const content = await fs.readFile(debugMapPath, 'utf-8')
+      return { success: true, content }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read debug-map.json',
+      }
+    }
+  }
+
+  /**
+   * Confirms the target is running the program just built, over the one held device
+   * link (Modbus targets) or runtime v4's own WebSocket — never a second client.
+   */
+  handleDebuggerVerifyMd5 = async (_event: IpcMainInvokeEvent, expectedMd5: string): Promise<Md5VerifyReply> => {
+    try {
+      return await this.withDebugChannel<Md5VerifyReply>(
+        'verify md5',
+        async (client) => {
+          const probe = await client.getMd5Hash()
+          // `targetMd5` spelled out rather than spread: `Md5ProbeResult` names the hash
+          // `md5`, so a spread would silently leave `targetMd5` undefined (no excess-property check catches it).
+          return {
+            success: true,
+            match: matchesMd5(probe.md5, expectedMd5),
+            targetMd5: probe.md5,
+            targetEndian: probe.targetEndian,
+          }
+        },
+        (reason) => ({ success: false, error: reason.error }),
+      )
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error during MD5 verification',
+      }
+    }
+  }
+
+  /**
+   * FC 0x4b run/stop for a baremetal target. Command only — state is read from the status
+   * poll (FC 0x46). Over the one held device link; never a second client, since an Arduino
+   * Modbus TCP server serves one at a time.
+   */
+  handleDebuggerPlcControl = async (_event: IpcMainInvokeEvent, action: 'run' | 'stop'): Promise<PlcControlResult> => {
+    this.traceDeviceLink(`run/stop: ${action} requested`)
+
+    // Routed by the session's CONTROL channel, which is the whole point: the caller
+    // said "stop the PLC" and does not know or care whether that means a Modbus
+    // function code on a cable or an HTTP POST to a runtime.
+    const restAddress = this.deviceSession.getRestAddress()
+    if (restAddress !== null) return this.restSetPlcState(restAddress, action)
+
+    const link = this.requireControl('run/stop')
+    if ('error' in link) return { success: false, error: link.error }
+
+    const target = action === 'run' ? PlcRuntimeState.RUNNING : PlcRuntimeState.STOPPED
+    try {
+      return await link.client.setPlcState(target)
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error during PLC control request',
+      }
+    }
+  }
+
+  /** Run/stop over a REST control channel; lives on `RuntimeApiClient` so the headless CLI shares the same `ERROR_SWITCH_STOP` translation. */
+  private restSetPlcState = (address: string, action: 'run' | 'stop'): Promise<PlcControlResult> =>
+    this.runtimeApi.setPlcState(address, action)
+
+  handleDebuggerGetVariablesList = async (
+    _event: IpcMainInvokeEvent,
+    variableIndexes: number[],
+  ): Promise<{
+    success: boolean
+    tick?: number
+    lastIndex?: number
+    data?: number[]
+    error?: string
+    needsReconnect?: boolean
+  }> => {
+    // A null connection type means the debugger was intentionally disconnected.
+    // Fail silently so the renderer's poll loop ignores it.
+    if (this.debuggerConnectionType === null) {
+      return { success: false, error: 'Debugger not connected' }
+    }
+
+    // Every target reads over its session's DEBUG channel; if a connection dropped, the
+    // manager is already reopening it, and `needsReconnect` tells the renderer to stop rather than race it for the medium.
+    try {
+      return await this.withDebugChannel(
+        'read variables',
+        async (client) => {
+          const result = await client.getVariablesList(variableIndexes)
+          if (result.success && result.data) {
+            // The debug poll is the busiest thing on the link; telling the session
+            // about it is what stops the liveness read from queueing behind this
+            // traffic and timing out on a link that is plainly working.
+            this.deviceSession.noteTraffic()
+            return { success: true, tick: result.tick, lastIndex: result.lastIndex, data: Array.from(result.data) }
+          }
+          return { success: false, error: result.error }
+        },
+        (reason) => ({ success: false, error: reason.error, needsReconnect: true }),
+      )
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error), needsReconnect: true }
+    }
+  }
+
+  handleReadProgramStMd5 = async (
+    _event: IpcMainInvokeEvent,
+    projectPath: string,
+    boardTarget: string,
+  ): Promise<{ success: boolean; md5?: string; error?: string }> => {
+    try {
+      const fs = await import('fs/promises')
+      const path = await import('path')
+
+      if (path.isAbsolute(boardTarget) || boardTarget.includes('..') || boardTarget.includes(path.sep)) {
+        return { success: false, error: 'Invalid board target' }
+      }
+
+      // STruC++ writes the MD5 into debug-map.json alongside the pointer
+      // tables. It's the single source of truth the editor and the target
+      // agree on (target exposes the same value via FC 0x45).
+      const debugMapPath = path.resolve(
+        resolveBuildWorkspace(projectPath),
+        'build',
+        boardTarget,
+        'src',
+        'debug-map.json',
+      )
+      const raw = await fs.readFile(debugMapPath, 'utf-8')
+      const parsed = JSON.parse(raw) as { md5?: unknown }
+
+      if (typeof parsed.md5 !== 'string' || !/^[a-fA-F0-9]{32}$/.test(parsed.md5)) {
+        return { success: false, error: 'debug-map.json is missing a valid md5 field' }
+      }
+      return { success: true, md5: parsed.md5 }
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Failed to read debug-map.json',
+      }
+    }
+  }
+
+  /**
+   * Reads the run/stop state over an already-open client and pushes it to the renderer.
+   * Throttled since its two callers (liveness poll, debugger's variable poll) tick at
+   * very different rates; both share the one held connection.
+   */
+  private plcStatePushedAt = 0
+
+  private async pushPlcState(
+    client: { getStatus?: () => Promise<DebugStatusResult> },
+    port: string,
+    minIntervalMs = 2000,
+  ): Promise<void> {
+    if (!client.getStatus) return
+    const now = Date.now()
+    if (now - this.plcStatePushedAt < minIntervalMs) return
+    this.plcStatePushedAt = now
+
+    const r = await client.getStatus()
+    if (!r.success) return
+    this.mainWindow?.webContents?.send('device:plc-state', {
+      port,
+      plcState: r.plcState,
+      switchPosition: r.switchPosition,
+    })
+  }
+
+  /**
+   * For a Modbus target there is nothing to open: it runs over the one held device link (the OS
+   * won't lock a serial port twice, and a TCP Arduino serves one client); runtime v4 keeps its own
+   * WebSocket.
+   */
+  handleDebuggerConnect = async (_event: IpcMainInvokeEvent): Promise<{ success: boolean; error?: string }> => {
+    try {
+      // For a shared session this opens nothing (already proven by Connect); for a
+      // runtime target it opens that target's own debug channel, only while needed.
+      const channel = await this.requireDebug('debug session')
+      if ('error' in channel) return { success: false, error: channel.error }
+
+      // Session identity comes from the SESSION, not from what the caller guessed:
+      // a connected target names no transport at all.
+      this.debuggerConnectionType = this.deviceSession.getLink()?.transport ?? 'tcp'
+      return { success: true }
+    } catch (error) {
+      this.debuggerConnectionType = null
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /**
+   * Stops a debug session: releases the debug channel, nothing more. The session
+   * belongs to Connect/login, not the debugger — closing it here would drop the user's
+   * connection just because they stopped debugging.
+   */
+  handleDebuggerDisconnect = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    this.deviceSession.releaseDebugChannel('debug session')
+    this.debuggerConnectionType = null
+    return Promise.resolve({ success: true })
+  }
+
+  // ===================================================================
+  // The device link — "stay connected", over serial or Modbus TCP
+  // ===================================================================
+
+  /** Push a link state change to the renderer. */
+  private emitDeviceLinkStatus(status: DeviceLinkStatus): void {
+    // `connecting` is not traced: it's already visible in the button and repeats once
+    // per candidate on a baud sweep. Every settled state still gets its line.
+    if (status.status !== 'connecting') {
+      this.traceDeviceLink(
+        `status -> ${status.status}${status.descriptor ? ` (${status.transport ?? '?'} ${status.descriptor})` : ''}${
+          status.reason ? ` [${status.reason}]` : ''
+        }`,
+      )
+    }
+    this.mainWindow?.webContents?.send('device:connection-status', status)
+  }
+
+  /**
+   * Diagnostic trace for the device connection, to both sinks on purpose: the log file
+   * keeps it, and the renderer console lets a user copy it while reproducing something.
+   */
+  private traceDeviceLink(message: string): void {
+    logger.info(`[link] ${message}`)
+    this.mainWindow?.webContents?.send('device:link-log', message)
+  }
+
+  private toDeviceLinkCandidates = (
+    configs: DebugConnectionConfig[],
+    opts: { probeBaudRates?: boolean } = {},
+  ): DeviceLinkCandidate[] => toDeviceLinkCandidates(configs, opts, this.debugChannelDeps)
+
+  /** The simulator lives in this process, so the factory needs a way to build the in-process serial port it answers on. */
+  private readonly debugChannelDeps = {
+    createVirtualSerialPort: () => new VirtualSerialPort(this.simulatorModule),
+    // Read from the token manager at open time, never a closure over the login-time value.
+    getToken: () => this.runtimeApi.tokens.getToken(),
+  }
+  /** Consume the classification the last verified candidate produced. */
+  private takeDeviceLinkProbe(): DeviceProbeOutcome | null {
+    const probe = this.deviceLinkProbe
+    this.deviceLinkProbe = null
+    return probe
+  }
+
+  /**
+   * Establishes a session with a Runtime v3/v4: control over REST, debug over the
+   * channel its board declares. Called once the renderer has logged in; the debug channel is only described here, not opened.
+   */
+  handleOpenRuntimeSession = (
+    _event: IpcMainInvokeEvent,
+    params: { address: string; debug: DebugConnectionConfig },
+  ): Promise<{ success: boolean; error?: string }> => {
+    const candidate = this.toDebugCandidate(params.debug)
+    if (!candidate) {
+      return Promise.resolve({
+        success: false,
+        error: `This target declares a debug channel this build cannot open: ${params.debug.connectionType}`,
+      })
+    }
+    this.deviceSession.openRestSession({ address: params.address, debugChannel: candidate })
+    this.debuggerConnectionType = params.debug.connectionType
+    return Promise.resolve({ success: true })
+  }
+
+  /** Close a REST-controlled session (the user logged out / disconnected). */
+  handleCloseRuntimeSession = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    if (this.deviceSession.getRestAddress() !== null) {
+      this.deviceSession.close()
+      this.debuggerConnectionType = null
+    }
+    return Promise.resolve({ success: true })
+  }
+  private toDebugCandidate = (config: DebugConnectionConfig): DeviceDebugCandidate | null =>
+    toDebugCandidate(config, this.debugChannelDeps)
+
+  /**
+   * Is this freshly opened candidate a device we can work with? Runs the connect-time
+   * classification and keeps its verdict for the renderer; only `connected-with-firmware` keeps a candidate.
+   */
+  private async verifyDeviceCandidate(
+    client: DeviceModbusTransport,
+    candidate: DeviceLinkCandidate,
+    context: { isLastCandidate: boolean },
+  ): Promise<boolean> {
+    // The simulator is in-process, so a device-id read is the wrong question; retried
+    // since the session opens the instant the emulator starts, before it services Modbus.
+    if (candidate.transport === 'simulator') {
+      for (let attempt = 0; attempt < MainProcessBridge.SIMULATOR_PROBE_ATTEMPTS; attempt += 1) {
+        try {
+          if (await this.probeDeviceLink(client)) return true
+        } catch {
+          // Not up yet — fall through to the wait below.
+        }
+        await new Promise((resolve) => setTimeout(resolve, MainProcessBridge.SIMULATOR_PROBE_INTERVAL_MS))
+      }
+      return false
+    }
+
+    // Patient only with the last candidate: a freshly flashed board may still be
+    // booting, worth ~32s when it's the only way in, but not while alternatives wait.
+    // A speculative candidate (an unconfigured baud guess) never gets that patience.
+    const isPatient = !candidate.speculative && (candidate.patient === true || context.isLastCandidate)
+    const deviceIdProbe = candidate.speculative
+      ? SPECULATIVE_DEVICE_ID_PROBE
+      : isPatient
+        ? PATIENT_DEVICE_ID_PROBE
+        : QUICK_DEVICE_ID_PROBE
+    const result = await classifyDeviceLink(client, { deviceIdProbe })
+    this.deviceLinkProbe = result
+    if (result.status !== 'connected-with-firmware') {
+      // Traced only when rejected, with the budget it was given, since "no firmware
+      // after 2 id reads (baud guess)" is a different problem from "after 6" on a configured port.
+      this.traceDeviceLink(
+        `  ${candidate.descriptor}: "${result.status}" after up to ${deviceIdProbe.attempts} id read(s)` +
+          `${candidate.speculative ? ' (baud guess)' : isPatient ? ' (last configured endpoint, was patient)' : ''}` +
+          `${result.error ? ` — ${result.error}` : ''}`,
+      )
+      return false
+    }
+    // The status frame doubles as the run/stop state source; push it straight
+    // away so the Start/Stop button is right before the first poll lands.
+    await this.pushPlcState(client, candidate.descriptor, 0)
+    return true
+  }
+
+  /**
+   * Per-tick liveness read, and the one place baremetal run/stop state is polled. Prefers
+   * the status read (FC 0x46) over the device id (0x48): status also carries run/stop and
+   * the mode-switch position, at no extra cost.
+   */
+  private async probeDeviceLink(client: DeviceModbusTransport): Promise<boolean> {
+    const descriptor = this.deviceSession.getLink()?.descriptor ?? ''
+    if (client.getStatus) {
+      const status = await client.getStatus()
+      if (!status.success) return false
+      this.plcStatePushedAt = 0
+      await this.pushPlcState(client, descriptor, 0)
+      return true
+    }
+    return (await client.getDeviceId()).success
+  }
+
+  /**
+   * Releases the link if it holds `port` (the handoff before an upload takes the same
+   * serial port); a Modbus TCP link is left alone. Returns whether anything was released.
+   */
+  handleDeviceReleaseSerialPort = async (
+    _event: IpcMainInvokeEvent,
+    port: string | null | undefined,
+  ): Promise<{ released: boolean }> => {
+    return { released: this.deviceSession.releaseSerialPort(port) }
+  }
+
+  /** The CONTROL channel's client (run/stop, status). */
+  private deviceClient(): DeviceModbusTransport | null {
+    return this.deviceSession.getClient()
+  }
+
+  /**
+   * The channel for this operation family, or why there isn't one — every device command funnels
+   * through here so "not connected"/"reconnecting" read the same everywhere. A shared session's
+   * debug channel IS its control channel.
+   */
+  private requireControl(what: string): { client: DeviceModbusTransport } | ChannelUnavailable {
+    const client = this.deviceClient()
+    if (!client) return this.explainMissingChannel(what)
+    this.traceChannelUse(what, 'control')
+    return { client }
+  }
+
+  /**
+   * The debug channel, opening it if this session's debug medium is its own. A holder
+   * acquired here MUST be released or the channel never closes — per-command callers
+   * use `withDebugChannel`, which releases in a `finally`.
+   */
+  private async requireDebug(holder: string): Promise<{ client: DeviceDebugChannel } | ChannelUnavailable> {
+    // `holder` may carry a per-call uniqueness suffix (`what#seq`); the trace
+    // and the messages use the human prefix so the once-per-combination dedup
+    // in traceChannelUse keeps working.
+    const what = holder.split('#')[0]
+    const acquired = await this.deviceSession.acquireDebugChannel(holder)
+    if ('error' in acquired) {
+      if (!this.deviceSession.isConnected()) return this.explainMissingChannel(what)
+      this.traceDeviceLink(`${what}: debug channel unavailable — ${acquired.error}`)
+      return { error: acquired.error, needsReconnect: true }
+    }
+    this.traceChannelUse(what, 'debug')
+    return acquired
+  }
+
+  /**
+   * Runs one command over the debug channel, holding it only for the duration — a
+   * per-command caller is not a holder of the channel's lifetime, so it must release
+   * after, or a Runtime v3/v4 debug channel stays open past its debug session ending.
+   * Safe for baremetal, where `releaseDebugChannel` no-ops when control and debug are the same channel.
+   */
+  /**
+   * Monotonic suffix for per-command debug holders: the holder set is keyed by string,
+   * so two concurrent callers sharing a `what` would be one reference and the second's
+   * release could close the channel mid-sequence under the first.
+   */
+  private debugHolderSeq = 0
+
+  private async withDebugChannel<T>(
+    what: string,
+    run: (client: DeviceDebugChannel) => Promise<T>,
+    onUnavailable: (reason: ChannelUnavailable) => T,
+  ): Promise<T> {
+    const holder = `${what}#${++this.debugHolderSeq}`
+    const acquired = await this.requireDebug(holder)
+    if ('error' in acquired) return onUnavailable(acquired)
+    try {
+      return await run(acquired.client)
+    } finally {
+      this.deviceSession.releaseDebugChannel(holder)
+    }
+  }
+
+  /**
+   * Which channel served which command — logged once per distinct combination, since
+   * the continuous debug poll would otherwise bury every other console message.
+   */
+  private tracedChannelUses = new Set<string>()
+
+  private traceChannelUse(what: string, family: 'control' | 'debug'): void {
+    const link = this.deviceSession.getLink()
+    const endpoint = `${link?.transport ?? '?'} ${link?.descriptor ?? '?'}`
+    const key = `${what}|${family}|${endpoint}`
+    if (this.tracedChannelUses.has(key)) return
+    this.tracedChannelUses.add(key)
+    this.traceDeviceLink(`${what}: using the ${family} channel (${endpoint})`)
+  }
+
+  private explainMissingChannel(what: string): ChannelUnavailable {
+    if (this.deviceSession.isRecovering()) {
+      this.traceDeviceLink(`${what}: refused, the connection is mid-recovery`)
+      return { error: 'the connection dropped and is being restored, try again in a moment', needsReconnect: true }
+    }
+    this.traceDeviceLink(`${what}: refused, nothing is connected`)
+    return { error: MainProcessBridge.DEVICE_NOT_CONNECTED, needsReconnect: true }
+  }
+
+  /** The emulator boots in milliseconds, but that's not "instantly" — its session opens the instant it starts. */
+  private static readonly SIMULATOR_PROBE_ATTEMPTS = 10
+  private static readonly SIMULATOR_PROBE_INTERVAL_MS = 200
+
+  /**
+   * Reported when a command arrives and no session exists. Short and neutral on
+   * purpose: the caller already says which action failed, and a per-transport
+   * explanation here would be wrong on whichever transport didn't write it.
+   */
+  private static readonly DEVICE_NOT_CONNECTED = 'not connected to the target'
+
+  /**
+   * Opens and holds the link to a baremetal device. `candidates` is the ordered list the
+   * renderer resolved from the board's debug spec; keeps the first that both opens and
+   * answers, classified in `verifyDeviceCandidate`.
+   */
+  handleDeviceConnect = async (
+    _event: IpcMainInvokeEvent,
+    candidates: DebugConnectionConfig[],
+  ): Promise<DeviceProbeOutcome> => {
+    this.deviceLinkProbe = null
+    // A new connection is a new story: let each command say which channel served
+    // it again, since it may well be a different one this time.
+    this.tracedChannelUses.clear()
+    this.traceDeviceLink(
+      `connect requested with ${candidates.length} candidate(s): ${
+        candidates.map((config) => `${config.connectionType} ${describeDebugEndpoint(config)}`).join(', ') || '(none)'
+      }`,
+    )
+
+    const linkCandidates = this.toDeviceLinkCandidates(candidates)
+    if (linkCandidates.length === 0) {
+      // Publish a settled state before returning: this path never reaches
+      // `deviceSession.open()`, so nothing else will, and the renderer set
+      // 'connecting' the moment the user clicked. Left unsaid, its Connect button
+      // stays disabled for the rest of the project's life.
+      this.emitDeviceLinkStatus({ status: 'disconnected' })
+      return { status: 'error', error: 'No usable serial or Modbus TCP connection was configured for this device.' }
+    }
+
+    const result = await this.deviceSession.open(linkCandidates)
+    // Read the verdict out of the field after the open: verification runs inside
+    // it, one candidate at a time, and this is where its conclusion lands.
+    const probe = this.takeDeviceLinkProbe()
+    if (result.ok) return probe ?? { status: 'connected-with-firmware' }
+
+    // Nothing worked. A candidate that got far enough to be classified gives the
+    // better message ("no firmware" beats "could not connect"); otherwise report
+    // what was tried.
+    if (probe && probe.status !== 'connected-with-firmware') return probe
+    const tried = result.attempts.map((attempt) => `${describeLinkCandidate(attempt)}: ${attempt.error}`).join('; ')
+    return { status: 'no-response', error: tried || 'No connection could be established.' }
+  }
+
+  /** Close the held link (user pressed Disconnect). */
+  handleDeviceDisconnect = async (): Promise<{ success: boolean }> => {
+    this.deviceSession.close()
+    this.deviceLinkProbe = null
+    this.tracedChannelUses.clear()
+    return { success: true }
+  }
+
+  // ===================== VPP LICENSING OVER THE HELD LINK =====================
+  // On-demand, not part of `device:connect`: folding the network round trip in would
+  // make every connect wait on it, and a purchase happens after connect, so the buy
+  // dialog needs to call this again on the already-open link. Baremetal rides the
+  // control channel's frame mutex; runtime v4 rides its own debug WebSocket instead.
+
+  /**
+   * True while a compound licensing sequence runs over the held client. The transports only
+   * serialise individual frames, not `refreshLicense`'s read-HTTP-write-read: two at once
+   * could interleave a read and a write.
+   */
+  private deviceLicenseSequenceInFlight = false
+
+  /**
+   * The licensing identity, tagged with which kind of value the channel answered. Read
+   * fresh every call, never cached at connect: a board swapped on the same serial path
+   * would inherit the previous one's identity.
+   */
+  private async readLicenseIdentity(
+    client: LicenseChannel,
+  ): Promise<{ identity: DeviceIdentity } | { error: string; retryable?: boolean }> {
+    // The device-condition half of the reply is identical for both forms, so it
+    // is checked once; only the NAME of the bytes differs, and that is the whole
+    // reason the two are separate methods.
+    const settle = (read: { success: boolean; unsupported?: boolean; error?: string }) => {
+      // The target said "no identity to license against" (0x85 on 0x48) — terminal, no
+      // retry, but distinct from 'unsupported' ("rebuild and upload"), which would wrongly tell an x86 host that rebuilding helps.
+      if (read.unsupported) {
+        return {
+          error:
+            'this device has no hardware identity a licence can be issued for. ' +
+            'Licensed VPPs require hardware that reports a unique identifier.',
+          retryable: false,
+        } as const
+      }
+      if (!read.success) return { error: read.error ?? 'the device did not answer the identity read' } as const
+      // Liveness evidence for the control link's poll; a no-op on a REST session, which runs no liveness poll at all.
+      this.deviceSession.noteTraffic()
+      return null
+    }
+
+    // Exactly one of the two exists on any real channel; narrowed on the channel rather
+    // than the reply, so each branch statically knows which kind it holds.
+    if (client.getDeviceId) {
+      const read = await client.getDeviceId()
+      const bad = settle(read)
+      if (bad) return bad
+      return { identity: { kind: 'device-id', deviceId: read.deviceId ?? new Uint8Array(0) } }
+    }
+
+    if (client.getAnchor) {
+      const read = await client.getAnchor()
+      const bad = settle(read)
+      if (bad) return bad
+      return { identity: { kind: 'anchor', anchor: read.anchor ?? new Uint8Array(0) } }
+    }
+
+    // Neither: a programming error rather than a device condition, so it says so
+    // instead of deriving an identity from nothing.
+    // Permanent: a channel either implements an identity read or it never will.
+    // The comment below calls it a programming error, and a retry button on a
+    // programming error is a loop with a friendly label.
+    return { error: 'This connection cannot read the device identity that licensing needs.', retryable: false }
+  }
+
+  /**
+   * Run one licensing call over the channel that carries licensing for THIS
+   * session: the held CONTROL link on baremetal, the debug WebSocket on a
+   * REST-controlled runtime. See the CHANNEL CHOICE comment above.
+   *
+   * Every unavailable-channel answer is `check-failed` — never "not licensed":
+   * nothing was asked of the device, so nothing can be asserted about it.
+   */
+  private async withLicenseChannel(
+    what: string,
+    run: (client: LicenseChannel) => Promise<DeviceLicenseReport>,
+  ): Promise<DeviceLicenseReport> {
+    const checkFailed = (error: string): DeviceLicenseReport => ({ outcome: { state: 'check-failed', error } })
+    /** Same, for a cause that cannot change by asking again — the UI drops the retry. */
+    const checkFailedTerminal = (error: string): DeviceLicenseReport => ({
+      outcome: { state: 'check-failed', error, retryable: false },
+    })
+
+    const control = this.deviceClient()
+    if (control) {
+      this.traceChannelUse(what, 'control')
+      return run(control)
+    }
+
+    // No control channel and no REST session: nothing is connected (or the link
+    // is mid-recovery) — explain which, in the same words every handler uses.
+    if (this.deviceSession.getRestAddress() === null) {
+      return checkFailed(this.explainMissingChannel(what).error)
+    }
+
+    return this.withDebugChannel(
+      what,
+      async (client) => {
+        if (!isLicenseChannel(client)) {
+          // Permanent for this kind of session, so no retry.
+          return checkFailedTerminal('This connection cannot carry the licensing protocol.')
+        }
+        return run(client)
+      },
+      (reason) => checkFailed(reason.error),
+    )
+  }
+
+  /**
+   * `device:read-license` — what license is this board holding right now?
+   *
+   * Read + verify only; never contacts the backend, so it is cheap enough for a
+   * screen open. It answers the question the badge asks, which `device:connect`
+   * deliberately does not.
+   */
+  handleDeviceReadLicense = async (
+    _event: IpcMainInvokeEvent,
+    request: DeviceLicenseRequest,
+  ): Promise<DeviceLicenseReport> => {
+    return await this.withLicenseChannel('read license', async (client) => {
+      try {
+        const identity = await this.readLicenseIdentity(client)
+        if ('error' in identity) return { outcome: checkFailedOutcome(identity) }
+
+        return await inspectDeviceLicense(client, { ...request, identity: identity.identity })
+      } catch (error) {
+        return { outcome: { state: 'check-failed', error: getErrorMessage(error) } }
+      }
+    })
+  }
+
+  /**
+   * `device:refresh-license` — the full flow, including the backend recovery.
+   *
+   * Called after a connect to a licensable board, and again after a purchase so a
+   * device gets its license without disconnecting or reflashing.
+   */
+  handleDeviceRefreshLicense = async (
+    _event: IpcMainInvokeEvent,
+    request: DeviceLicenseRequest,
+  ): Promise<DeviceLicenseReport> => {
+    return await this.withLicenseChannel('refresh license', async (client) => {
+      // Checked INSIDE the channel scope, so a caller with no channel at all does
+      // not consume the guard — see the "no link to run on" test.
+      if (this.deviceLicenseSequenceInFlight) {
+        // Reported rather than queued: the caller is a button or a connect, and a
+        // second answer arriving later for a question already being answered is
+        // noise at best and a contradictory badge at worst.
+        return { outcome: { state: 'check-failed', error: 'A licence check is already running on this device.' } }
+      }
+      this.deviceLicenseSequenceInFlight = true
+
+      try {
+        const identity = await this.readLicenseIdentity(client)
+        if ('error' in identity) return { outcome: checkFailedOutcome(identity) }
+
+        const report = await resolveDeviceLicense(client, { ...request, identity: identity.identity })
+        // The license FCs are device traffic like any other: without noting them the
+        // liveness poll can fall due mid-sequence and declare a healthy link lost.
+        this.deviceSession.noteTraffic()
+        return report
+      } catch (error) {
+        return { outcome: { state: 'check-failed', error: getErrorMessage(error) } }
+      } finally {
+        this.deviceLicenseSequenceInFlight = false
+      }
+    })
+  }
+
+  handleDebuggerSetVariable = async (
+    _event: IpcMainInvokeEvent,
+    variableIndex: number,
+    force: boolean,
+    valueBuffer?: Uint8Array,
+  ): Promise<{ success: boolean; error?: string }> => {
+    const buffer = valueBuffer ? Buffer.from(valueBuffer) : undefined
+
+    try {
+      return await this.withDebugChannel(
+        'write variable',
+        async (client) => {
+          const result = await client.setVariable(variableIndex, force, buffer)
+          // Forcing values is device traffic too: it queues on the same link and
+          // proves the same thing a read does. Without this, holding a force while
+          // the poll is due lets the liveness read wait behind it and time out.
+          if (result.success) this.deviceSession.noteTraffic()
+          logger.info('[IPC Handler] Modbus setVariable result: ' + JSON.stringify(result))
+          return result
+        },
+        (reason) => ({ success: false, error: reason.error }),
+      )
+    } catch (error) {
+      logger.error('[IPC Handler] Modbus setVariable error: ' + getErrorMessage(error))
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  // ===================== FILE WATCHER HANDLERS =====================
+
+  /**
+   * Validate that a file path is within the current project root.
+   * Resolves symlinks to prevent directory traversal attacks.
+   */
+  private validateFilePath(filePath: string): boolean {
+    if (!this.currentProjectPath) return false
+    try {
+      const resolved = realpathSync(resolve(filePath))
+      const projectRoot = realpathSync(resolve(this.currentProjectPath))
+      return resolved.startsWith(projectRoot + sep) || resolved === projectRoot
+    } catch {
+      // realpathSync fails if the file doesn't exist yet — fall back to resolve only
+      const resolved = resolve(filePath)
+      const projectRoot = resolve(this.currentProjectPath)
+      return resolved.startsWith(projectRoot + sep) || resolved === projectRoot
+    }
+  }
+
+  // ===================== SIMULATOR HANDLERS =====================
+
+  /** Stops the simulator and notifies the renderer so it can update UI state. */
+  private stopSimulatorAndNotify(): void {
+    if (this.simulatorModule.isRunning()) {
+      this.stopSimulator()
+      this.mainWindow?.webContents.send('simulator:stopped')
+    }
+  }
+
+  // ===================== ETHERCAT DISCOVERY HANDLERS =====================
+
+  handleEtherCATGetInterfaces = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: NetworkInterface[]; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<{ interfaces: NetworkInterface[] }>(
+        ipAddress,
+        '/api/discovery/interfaces',
+        (data: string) => {
+          const response = JSON.parse(data) as { status: string; interfaces: NetworkInterface[] }
+          return { interfaces: response.interfaces || [] }
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, data: result.data.interfaces }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATGetStatus = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: EtherCATServiceStatusResponse; error?: string }> => {
+    try {
+      const result = await this.makeRuntimeApiRequest<EtherCATServiceStatusResponse>(
+        ipAddress,
+        '/api/discovery/ethercat/status',
+        (data: string) => {
+          const parsed = JSON.parse(data) as unknown
+          if (
+            !parsed ||
+            typeof parsed !== 'object' ||
+            typeof (parsed as { available?: unknown }).available !== 'boolean' ||
+            typeof (parsed as { message?: unknown }).message !== 'string'
+          ) {
+            throw new Error('EtherCAT status response did not match expected shape')
+          }
+          return parsed as EtherCATServiceStatusResponse
+        },
+      )
+      if (result.success && result.data) {
+        return { success: true, data: result.data }
+      } else {
+        return { success: false, error: result.success ? 'No data returned' : result.error }
+      }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATScan = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    scanRequest: EtherCATScanRequest,
+  ): Promise<{ success: boolean; data?: EtherCATScanResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        plugin: 'ethercat',
+        command: 'scan',
+        params: { interface: scanRequest.interface, timeout_ms: scanRequest.timeout_ms },
+      })
+      const scanTimeout = (scanRequest.timeout_ms || 5000) + 10000
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/plugin-command',
+        postData,
+        (data: string) => {
+          const pluginResponse = JSON.parse(data) as Record<string, unknown>
+          if (pluginResponse.error) throw new Error(pluginResponse.error as string)
+          return {
+            status: (pluginResponse.status as string) ?? 'success',
+            devices: (pluginResponse.devices as EtherCATScanResponse['devices']) ?? [],
+            message: (pluginResponse.message as string) ?? '',
+            scan_time_ms: (pluginResponse.scan_time_ms as number) ?? 0,
+            interface: scanRequest.interface,
+          } as EtherCATScanResponse
+        },
+        scanTimeout,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  /**
+   * `POST /api/discovery/ethercat/scan-modules`.
+   * Returns the modular coupler's `0xF050` module list as the Python runtime
+   * forwards it. Keeps parsing responsibilities on the renderer — the handler
+   * just hands back the parsed JSON body so the shared protocol helpers can
+   * decide what counts as a usable row.
+   */
+  handleEtherCATScanModules = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    scanRequest: { busName: string; slavePosition: number; networkInterface?: string },
+  ): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        bus_name: scanRequest.busName,
+        slave_position: scanRequest.slavePosition,
+        ...(scanRequest.networkInterface ? { interface: scanRequest.networkInterface } : {}),
+      })
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/scan-modules',
+        postData,
+        (data: string): unknown => JSON.parse(data),
+        ETHERCAT_SCAN_MODULES_TIMEOUT_MS,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATDiagnostics = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    request: { busName: string; slavePosition: number },
+  ): Promise<{ success: boolean; data?: unknown; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        bus_name: request.busName,
+        slave_position: request.slavePosition,
+      })
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/diagnostics',
+        postData,
+        (data: string): unknown => JSON.parse(data),
+        ETHERCAT_DIAGNOSTICS_TIMEOUT_MS,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATTest = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    testRequest: EtherCATTestRequest,
+  ): Promise<{ success: boolean; data?: EtherCATTestResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify(testRequest)
+      const testTimeout = (testRequest.timeout_ms || 3000) + 10000
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/test',
+        postData,
+        (data: string) => JSON.parse(data) as EtherCATTestResponse,
+        testTimeout,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATValidate = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+    validateRequest: EtherCATValidateRequest,
+  ): Promise<{ success: boolean; data?: EtherCATValidateResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify(validateRequest)
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/discovery/ethercat/validate',
+        postData,
+        (data: string) => JSON.parse(data) as EtherCATValidateResponse,
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  handleEtherCATGetRuntimeStatus = async (
+    _event: IpcMainInvokeEvent,
+    ipAddress: string,
+  ): Promise<{ success: boolean; data?: EtherCATRuntimeStatusResponse; error?: string }> => {
+    try {
+      const postData = JSON.stringify({
+        plugin: 'ethercat',
+        command: 'status',
+      })
+
+      const result = await this.makeRuntimeApiPostRequest(
+        ipAddress,
+        '/api/plugin-command',
+        postData,
+        (data: string) => {
+          const pluginResponse = JSON.parse(data) as Record<string, unknown>
+          if (pluginResponse.error) throw new Error(pluginResponse.error as string)
+          return pluginResponse as unknown as EtherCATRuntimeStatusResponse
+        },
+      )
+
+      if (result.success) {
+        return { success: true, data: result.data }
+      }
+      return { success: false, error: result.error }
+    } catch (error) {
+      return { success: false, error: String(error) }
+    }
+  }
+
+  // ===================== ESI REPOSITORY MECHANISMS =====================
+  // The ESI repository logic is shared (backend/shared/ethercat/esi-repository-port.ts).
+  // The main process only runs the shared parser off the renderer thread and does file I/O.
+
+  /** Run a file call and hand its outcome over IPC; the renderer rethrows the message. */
+  private async esiFileCall<T>(fn: () => Promise<T>): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+    try {
+      return { ok: true, value: await fn() }
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    }
+  }
+
+  handleESIParse = (_event: IpcMainInvokeEvent, request: EsiParseOp) => runEsiParseOp(request)
+
+  handleESIFileRead = (_event: IpcMainInvokeEvent, projectPath: string, name: string) =>
+    this.esiFileCall(() => this.esiFiles.read(projectPath, name))
+
+  handleESIFileWrite = (_event: IpcMainInvokeEvent, projectPath: string, name: string, text: string) =>
+    this.esiFileCall(() => this.esiFiles.write(projectPath, name, text))
+
+  handleESIFileRemove = (_event: IpcMainInvokeEvent, projectPath: string, name: string) =>
+    this.esiFileCall(() => this.esiFiles.remove(projectPath, name))
+
+  handleESIFileList = (_event: IpcMainInvokeEvent, projectPath: string) =>
+    this.esiFileCall(() => this.esiFiles.list(projectPath))
+
+  /**
+   * Start the emulator, then open its session.
+   *
+   * The running emulator IS the simulator's connection — there is no port to pick
+   * and no address to configure, so nothing about it is ever resolved from a spec
+   * or asked of the user. Opening the session here (rather than when the debugger
+   * asks) is what makes the simulator behave like every other target downstream:
+   * commands go to a session the manager holds, and when the emulator stops the
+   * session ends the same way a pulled cable ends a serial one.
+   */
+  handleSimulatorLoadFirmware = async (
+    _event: IpcMainInvokeEvent,
+    hexPath: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const fs = await import('fs/promises')
+      const hexContent = await fs.readFile(hexPath, 'utf-8')
+      this.simulatorModule.loadAndRun(hexContent)
+
+      const opened = await this.deviceSession.open(
+        this.toDeviceLinkCandidates([{ connectionType: 'simulator', connectionParams: {} }]),
+      )
+      if (!opened.ok) {
+        this.stopSimulator()
+        const reason = opened.attempts.map((attempt) => attempt.error).join('; ')
+        return { success: false, error: reason || 'The simulator did not answer its debug protocol' }
+      }
+      this.debuggerConnectionType = 'simulator'
+      return { success: true }
+    } catch (error) {
+      // A start that threw part-way still leaves state behind: `loadAndRun`
+      // marks the emulator running before it finishes wiring, so a throw after
+      // that point leaked a running emulator with no session — and no button to
+      // reach it, because the renderer never learned it had started. Web ends up
+      // in the right place through its worker, which cleans up and reports
+      // 'stopped' when `loadAndRun` throws; this is the editor's counterpart.
+      this.stopSimulator()
+      return { success: false, error: getErrorMessage(error) }
+    }
+  }
+
+  /**
+   * Stop the emulator entirely — the simulator's Stop button means "stop the
+   * simulator", not "stop the program it is running".
+   */
+  handleSimulatorStop = (_event: IpcMainInvokeEvent): Promise<{ success: boolean }> => {
+    this.stopSimulator()
+    return Promise.resolve({ success: true })
+  }
+
+  /**
+   * The one way the emulator stops: session first, then the emulator, so the
+   * debug client is dropped before the thing it talks to disappears.
+   *
+   * Every stop path routes through here on purpose. The session is a consumer of
+   * the emulator, so an emulator that goes away while its session stays open
+   * leaves the renderer gated on a session whose target no longer exists — which
+   * a window reload and a failed start both used to do.
+   */
+  stopSimulator(): void {
+    this.closeSimulatorSession()
+    this.simulatorModule.stop()
+  }
+
+  /** Close the session if it is the simulator's. No-op for any other target. */
+  private closeSimulatorSession(): void {
+    if (this.deviceSession.getLink()?.transport !== 'simulator') return
+    this.deviceSession.close()
+    this.debuggerConnectionType = null
+  }
+
+  handleSimulatorIsRunning = (_event: IpcMainInvokeEvent): Promise<boolean> => {
+    return Promise.resolve(this.simulatorModule.isRunning())
+  }
+
+  // Using watchFile (polling-based) instead of watch for better macOS compatibility
+  // fs.watch can fail when editors use "safe write" (write to temp file, then rename)
+  handleFileWatchStart = (
+    _event: IpcMainInvokeEvent,
+    filePath: string,
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!this.validateFilePath(filePath)) {
+      return Promise.resolve({ success: false, error: 'Path is outside the project directory' })
+    }
+
+    return new Promise((res) => {
+      if (this.fileWatchers.has(filePath)) {
+        res({ success: true })
+        return
+      }
+
+      stat(filePath, (statErr, stats) => {
+        if (statErr) {
+          res({ success: false, error: `Failed to stat file: ${statErr.message}` })
+          return
+        }
+
+        const initialMtime = stats.mtimeMs
+
+        try {
+          watchFile(filePath, { interval: 1000 }, (curr, prev) => {
+            const watcherData = this.fileWatchers.get(filePath)
+            if (!watcherData) return
+
+            if (curr.mtimeMs > prev.mtimeMs && curr.mtimeMs > watcherData.lastMtime) {
+              watcherData.lastMtime = curr.mtimeMs
+              this.mainWindow?.webContents.send('file:external-change', { filePath })
+            }
+          })
+
+          this.fileWatchers.set(filePath, { lastMtime: initialMtime })
+          res({ success: true })
+        } catch (error) {
+          res({ success: false, error: `Failed to watch file: ${getErrorMessage(error)}` })
+        }
+      })
+    })
+  }
+
+  handleFileWatchStop = (_event: IpcMainInvokeEvent, filePath: string): { success: boolean; error?: string } => {
+    // A registered watcher passed validation when it started; the root may have moved to another project since.
+    if (!this.fileWatchers.has(filePath) && !this.validateFilePath(filePath)) {
+      return { success: false, error: 'Path is outside the project directory' }
+    }
+    if (this.fileWatchers.has(filePath)) {
+      unwatchFile(filePath)
+      this.fileWatchers.delete(filePath)
+    }
+    return { success: true }
+  }
+
+  handleFileWatchStopAll = (_event: IpcMainInvokeEvent): { success: boolean } => {
+    for (const [filePath] of this.fileWatchers) {
+      unwatchFile(filePath)
+    }
+    this.fileWatchers.clear()
+    return { success: true }
+  }
+
+  handleFileReadContent = (
+    _event: IpcMainInvokeEvent,
+    filePath: string,
+  ): Promise<{ success: boolean; content?: string; error?: string }> => {
+    if (!this.validateFilePath(filePath)) {
+      return Promise.resolve({ success: false, error: 'Path is outside the project directory' })
+    }
+    return new Promise((res) => {
+      readFile(filePath, 'utf-8', (err, content) => {
+        if (err) {
+          res({ success: false, error: `Failed to read file: ${err.message}` })
+        } else {
+          res({ success: true, content })
+        }
+      })
+    })
+  }
+
+  // ===================== EVENT HANDLERS =====================
+  mainIpcEventHandlers = {
+    handleUpdateTheme: (_event: unknown, theme?: 'light' | 'dark' | 'nineties') => {
+      const newTheme = theme ?? (nativeTheme.shouldUseDarkColors ? 'light' : 'dark')
+      // nativeTheme only models light/dark; the 90's skin is UI-only and rides
+      // on a light base (mirrors MenuBuilder.updateAppTheme). The store keeps
+      // the full preference — it is the desktop's durable source of truth,
+      // analogous to the edge backend's user preference on the web app.
+      nativeTheme.themeSource = newTheme === 'dark' ? 'dark' : 'light'
+      const appStore = this.store as unknown as { set: (key: string, value: string) => void }
+      appStore.set('theme', newTheme)
+    },
+    handleGetTheme: (): 'light' | 'dark' | 'nineties' | null => {
+      const appStore = this.store as unknown as { get: (key: string) => unknown }
+      const stored = appStore.get('theme')
+      return stored === 'light' || stored === 'dark' || stored === 'nineties' ? stored : null
+    },
+    createPou: () => this.mainWindow?.webContents.send('pou:createPou', { ok: true }),
+  }
+}
+
+export default MainProcessBridge

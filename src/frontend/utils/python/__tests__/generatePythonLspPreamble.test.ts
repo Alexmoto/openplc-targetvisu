@@ -1,0 +1,470 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (c) 2026 Autonomy®
+import type { PLCDataType, PLCVariable } from '../../../../middleware/shared/ports/types'
+import { generatePythonLspPreamble } from '../generatePythonLspPreamble'
+
+const makeScalar = (
+  name: string,
+  cls: PLCVariable['class'],
+  baseType: string,
+  initialValue: string | null = null,
+): PLCVariable => ({
+  name,
+  class: cls,
+  type: { definition: 'base-type', value: baseType },
+  location: '',
+  initialValue,
+  documentation: '',
+  debug: false,
+})
+
+const makeArray = (name: string, cls: PLCVariable['class'], innerType: string, dimension: string): PLCVariable => ({
+  name,
+  class: cls,
+  type: {
+    definition: 'array',
+    value: `ARRAY [${dimension}] OF ${innerType}`,
+    data: {
+      baseType: { definition: 'base-type', value: innerType },
+      dimensions: [{ dimension }],
+    },
+  },
+  location: '',
+  documentation: '',
+  debug: false,
+})
+
+describe('generatePythonLspPreamble', () => {
+  describe('empty cases', () => {
+    it('returns empty text for an empty variables array', () => {
+      const result = generatePythonLspPreamble([])
+      expect(result.text).toBe('')
+      expect(result.lineCount).toBe(0)
+    })
+
+    it('returns empty text when no variable crosses the boundary', () => {
+      // The preamble declares exactly what the runtime injection makes a module
+      // global. A VAR_TEMP is refused outright for a Python block, so it never
+      // becomes one — declaring it would have the LSP pretend it exists.
+      const vars = [makeScalar('tempOnly', 'temp', 'BOOL')]
+      const result = generatePythonLspPreamble(vars)
+      expect(result.text).toBe('')
+      expect(result.lineCount).toBe(0)
+    })
+
+    it('returns empty text when every variable has an unmappable type (e.g. TIME)', () => {
+      // TIME / DATE / TOD / DT aren't wired through `injectPython-
+      // Runtime` yet; the mapper returns null for them so the
+      // preamble skips them.  If all inputs/outputs are unmappable,
+      // there's nothing to declare.
+      const vars = [makeScalar('then', 'input', 'TIME'), makeScalar('today', 'output', 'DATE')]
+      const result = generatePythonLspPreamble(vars)
+      expect(result.text).toBe('')
+      expect(result.lineCount).toBe(0)
+    })
+  })
+
+  describe('scalar type mapping', () => {
+    const cases: Array<[string, string, string]> = [
+      // [IEC type, Python annotation, default literal]
+      ['BOOL', 'bool', 'False'],
+      ['SINT', 'int', '0'],
+      ['INT', 'int', '0'],
+      ['DINT', 'int', '0'],
+      ['LINT', 'int', '0'],
+      ['USINT', 'int', '0'],
+      ['UINT', 'int', '0'],
+      ['UDINT', 'int', '0'],
+      ['ULINT', 'int', '0'],
+      ['BYTE', 'int', '0'],
+      ['WORD', 'int', '0'],
+      ['DWORD', 'int', '0'],
+      ['LWORD', 'int', '0'],
+      ['REAL', 'float', '0.0'],
+      ['LREAL', 'float', '0.0'],
+      ['STRING', 'str', "''"],
+      ['WSTRING', 'str', "''"],
+    ]
+    it.each(cases)('maps IEC %s → Python %s with default %s', (iec, py, def) => {
+      const vars = [makeScalar('x', 'input', iec)]
+      const result = generatePythonLspPreamble(vars)
+      expect(result.text).toContain(`x: ${py} = ${def}`)
+    })
+
+    it('accepts mixed casing on the IEC type name', () => {
+      // Generators upstream sometimes hand us lowercase ('string', 'int');
+      // the mapper normalises so the LSP doesn't trip on cosmetic case.
+      const vars = [makeScalar('lc', 'input', 'string'), makeScalar('mc', 'output', 'Int')]
+      const result = generatePythonLspPreamble(vars)
+      expect(result.text).toContain(`lc: str = ''`)
+      expect(result.text).toContain('mc: int = 0')
+    })
+  })
+
+  describe('array handling', () => {
+    it('declares an array as list[T] sized to the IEC dimension', () => {
+      const result = generatePythonLspPreamble([makeArray('buf', 'input', 'INT', '1..10')])
+      expect(result.text).toContain('buf: list[int] = [0] * 10')
+    })
+
+    it('uses the inner type default for the multiplier literal', () => {
+      const result = generatePythonLspPreamble([makeArray('flags', 'output', 'BOOL', '1..4')])
+      expect(result.text).toContain('flags: list[bool] = [False] * 4')
+    })
+
+    it('skips an array whose inner type is unmappable', () => {
+      // ARRAY OF TIME — inner type can't render, drop the whole entry
+      // rather than emitting a half-typed declaration the runtime
+      // wouldn't honour either.
+      const result = generatePythonLspPreamble([makeArray('times', 'input', 'TIME', '1..3')])
+      expect(result.text).toBe('')
+    })
+
+    it('falls back to an empty list when the array dimension is malformed', () => {
+      // Defensive: if `getArrayTotalElements` returns 0 (bad
+      // dimension), emit `[]` rather than `[default] * 0`, which is
+      // also `[]` but reads more clearly.
+      const bad = makeArray('x', 'output', 'INT', '')
+      // Strip the dimension so the helper returns 0 elements
+      bad.type.data!.dimensions = [{ dimension: '' }]
+      const result = generatePythonLspPreamble([bad])
+      expect(result.text).toContain('x: list[int] = []')
+    })
+  })
+
+  describe('class filtering', () => {
+    it('declares every class the runtime makes a module global, and no other', () => {
+      // The preamble has to match the injection exactly: anything it omits shows
+      // as an undefined name in the editor for a variable that does exist, and
+      // anything it adds is a name that will not be there at runtime.
+      const vars = [
+        makeScalar('inA', 'input', 'INT'),
+        makeScalar('outB', 'output', 'REAL'),
+        makeScalar('localC', 'local', 'BOOL'),
+        makeScalar('ioE', 'inOut', 'INT'),
+        makeScalar('extF', 'external', 'INT'),
+        makeScalar('tempD', 'temp', 'INT'),
+      ]
+      const result = generatePythonLspPreamble(vars)
+      expect(result.text).toContain('inA: int = 0')
+      expect(result.text).toContain('outB: float = 0.0')
+      expect(result.text).toContain('localC: bool = False')
+      expect(result.text).toContain('ioE: int = 0')
+      expect(result.text).toContain('extF: int = 0')
+      // VAR_TEMP is refused for a Python block, so it is never a global.
+      expect(result.text).not.toContain('tempD')
+    })
+
+    it('declares a variable that travels both ways exactly once', () => {
+      const vars = [makeScalar('ioE', 'inOut', 'INT')]
+      const result = generatePythonLspPreamble(vars)
+
+      expect(result.text.match(/ioE: int = 0/g)).toHaveLength(1)
+    })
+  })
+
+  describe('types the annotation cannot map', () => {
+    it('declares a STRING as an empty str, not None', () => {
+      // Pyright needs a definite assignment compatible with the annotation, so
+      // the literal has to match the declared type rather than be a placeholder.
+      const result = generatePythonLspPreamble([makeScalar('label', 'input', 'STRING')])
+
+      expect(result.text).toContain("label: str = ''")
+    })
+
+    it('skips an array whose element type has no Python equivalent', () => {
+      // The runtime does not marshal one either, so declaring it would have the
+      // editor offer a name that will not exist at runtime.
+      const arrayOfStructs: PLCVariable = {
+        name: 'bank',
+        class: 'input',
+        type: {
+          definition: 'array',
+          value: 'ARRAY [0..3] OF Motor',
+          data: {
+            baseType: { definition: 'user-data-type', value: 'Motor' },
+            dimensions: [{ dimension: '0..3' }],
+          },
+        },
+        location: '',
+        documentation: '',
+        debug: false,
+      }
+
+      expect(generatePythonLspPreamble([arrayOfStructs]).text).toBe('')
+    })
+
+    it('skips an array whose declaration carries no element type', () => {
+      const malformed: PLCVariable = {
+        name: 'bank',
+        class: 'input',
+        type: { definition: 'array', value: 'ARRAY [0..3] OF INT' },
+        location: '',
+        documentation: '',
+        debug: false,
+      }
+
+      expect(generatePythonLspPreamble([malformed]).text).toBe('')
+    })
+  })
+
+  describe('user-data-type handling', () => {
+    const structVar: PLCVariable = {
+      name: 'm',
+      class: 'input',
+      type: { definition: 'user-data-type', value: 'Motor' },
+      location: '',
+      documentation: '',
+      debug: false,
+    }
+
+    const MOTOR: PLCDataType = {
+      name: 'Motor',
+      derivation: 'structure',
+      variable: [
+        { name: 'speed', type: { definition: 'base-type', value: 'int' } },
+        { name: 'label', type: { definition: 'base-type', value: 'string' } },
+      ],
+    }
+
+    const MODE: PLCDataType = {
+      name: 'Mode',
+      derivation: 'enumerated',
+      values: [{ description: 'STOPPED' }, { description: 'RUNNING' }],
+    }
+
+    it('declares a structure as a class, so the editor resolves m.speed', () => {
+      const result = generatePythonLspPreamble([structVar], [MOTOR])
+
+      expect(result.text).toContain('class Motor:')
+      expect(result.text).toContain('    speed: int')
+      expect(result.text).toContain('    label: str')
+      // Constructed, not `None`: the stub declares members and no `__init__`,
+      // so `Motor()` type-checks, where `= None` did not.
+      expect(result.text).toContain('m: Motor = Motor()')
+    })
+
+    it('annotates with the type’s own spelling, not the variable’s', () => {
+      // `m : MOTOR` against a type declared `Motor` used to annotate `MOTOR`,
+      // which names no class — Pyright reported `"MOTOR" is not defined`.
+      const shouty: PLCVariable = { ...structVar, type: { definition: 'user-data-type', value: 'MOTOR' } }
+      const result = generatePythonLspPreamble([shouty], [MOTOR])
+
+      expect(result.text).toContain('m: Motor = Motor()')
+      expect(result.text).not.toContain('m: MOTOR')
+    })
+
+    it('seeds an enumeration with its first member, which a class cannot be called for', () => {
+      const enumVar: PLCVariable = { ...structVar, name: 'md', type: { definition: 'user-data-type', value: 'Mode' } }
+      const result = generatePythonLspPreamble([enumVar], [MODE])
+
+      expect(result.text).toContain('md: Mode = Mode.STOPPED')
+    })
+
+    it('declares an enumeration as an IntEnum with its members', () => {
+      const enumVar: PLCVariable = { ...structVar, name: 'md', type: { definition: 'user-data-type', value: 'Mode' } }
+      const result = generatePythonLspPreamble([enumVar], [MODE])
+
+      expect(result.text).toContain('from enum import IntEnum')
+      expect(result.text).toContain('class Mode(IntEnum):')
+      expect(result.text).toContain('    RUNNING = 1')
+    })
+
+    it('declares a nested structure before the one referencing it', () => {
+      const rig: PLCDataType = {
+        name: 'Rig',
+        derivation: 'structure',
+        variable: [{ name: 'drive', type: { definition: 'user-data-type', value: 'Motor' } }],
+      }
+      const rigVar: PLCVariable = { ...structVar, name: 'r', type: { definition: 'user-data-type', value: 'Rig' } }
+      const result = generatePythonLspPreamble([rigVar], [rig, MOTOR])
+
+      expect(result.text.indexOf('class Motor:')).toBeLessThan(result.text.indexOf('class Rig:'))
+      expect(result.text).toContain('    drive: Motor')
+    })
+
+    it('declares each type once however many variables use it', () => {
+      const b: PLCVariable = { ...structVar, name: 'b' }
+      const result = generatePythonLspPreamble([structVar, b], [MOTOR])
+
+      expect(result.text.match(/class Motor:/g)).toHaveLength(1)
+    })
+
+    it('annotates a type the project does not declare as Any', () => {
+      // The compile path refuses such a POU, but the editor should not silently
+      // drop a name the user can see in the Variables Table — nor annotate it
+      // with a class that has no stub, which is what `m: Motor = None` did:
+      // Pyright reported `"Motor" is not defined` on a line the user cannot see.
+      const result = generatePythonLspPreamble([structVar])
+
+      expect(result.text).toContain('m: Any = None')
+      expect(result.text).not.toContain('class Motor:')
+    })
+
+    it('keeps the line map pointing past the type stubs', () => {
+      // The diagnostic line mapping depends on the declaration's absolute line,
+      // so stubs inserted above it have to shift it.
+      const withStubs = generatePythonLspPreamble([structVar], [MOTOR])
+      const withoutStubs = generatePythonLspPreamble([structVar])
+      const lineOf = (p: typeof withStubs) => [...p.variableNameByPreambleLine.entries()][0][0]
+
+      expect(lineOf(withStubs)).toBeGreaterThan(lineOf(withoutStubs))
+    })
+
+    it('annotates a member whose type has no Python equivalent as Any', () => {
+      // A function block instance inside a structure is refused at compile time,
+      // but the stub still has to name the attribute or Pyright reports every
+      // use of it as an error on code the user has not finished writing.
+      const rig: PLCDataType = {
+        name: 'Rig',
+        derivation: 'structure',
+        variable: [{ name: 'timer', type: { definition: 'base-type', value: 'float32' } }],
+      }
+      const rigVar: PLCVariable = { ...structVar, name: 'r', type: { definition: 'user-data-type', value: 'Rig' } }
+      const result = generatePythonLspPreamble([rigVar], [rig])
+
+      expect(result.text).toContain('    timer: Any')
+    })
+
+    it('declares neither the variable nor a stub for an array of structures', () => {
+      // It has no Python annotation and is refused at compile time, so the
+      // editor stays in lockstep with what the build will accept.
+      const bank: PLCVariable = {
+        name: 'bank',
+        class: 'input',
+        type: {
+          definition: 'array',
+          value: 'ARRAY [0..1] OF Motor',
+          data: {
+            baseType: { definition: 'user-data-type', value: 'Motor' },
+            dimensions: [{ dimension: '0..1' }],
+          },
+        },
+        location: '',
+        documentation: '',
+        debug: false,
+      }
+      const result = generatePythonLspPreamble([bank], [MOTOR])
+
+      expect(result.text).toBe('')
+    })
+
+    it('stops rather than recursing when a structure contains itself', () => {
+      const loop: PLCDataType = {
+        name: 'Loop',
+        derivation: 'structure',
+        variable: [{ name: 'inner', type: { definition: 'user-data-type', value: 'Loop' } }],
+      }
+      const loopVar: PLCVariable = { ...structVar, name: 'l', type: { definition: 'user-data-type', value: 'Loop' } }
+
+      expect(generatePythonLspPreamble([loopVar], [loop]).text).toContain('class Loop:')
+    })
+
+    it('declares a scalar alongside a structure without stubbing the scalar', () => {
+      const result = generatePythonLspPreamble([makeScalar('x', 'input', 'INT'), structVar], [MOTOR])
+
+      expect(result.text).toContain('x: int = 0')
+      expect(result.text).toContain('class Motor:')
+      expect(result.text).not.toContain('class int')
+    })
+
+    it('ignores a named ARRAY type, which has no class to declare', () => {
+      const named: PLCDataType = {
+        name: 'Bank',
+        derivation: 'array',
+        baseType: { definition: 'base-type', value: 'INT' },
+        dimensions: [{ dimension: '0..3' }],
+      }
+      const bankVar: PLCVariable = { ...structVar, name: 'b', type: { definition: 'user-data-type', value: 'Bank' } }
+      const result = generatePythonLspPreamble([bankVar], [named])
+
+      expect(result.text).not.toContain('class Bank')
+    })
+  })
+
+  describe('header + structure', () => {
+    it('emits the auto-generated header comment when at least one var is declared', () => {
+      const result = generatePythonLspPreamble([makeScalar('x', 'input', 'BOOL')])
+      expect(result.text).toContain('# IEC variables — auto-generated for the Pyright language server.')
+      expect(result.text).toContain('# Not part of the source file')
+    })
+
+    it('reports lineCount equal to the number of newline characters in `text`', () => {
+      // lineCount is the offset the LSP integration applies when
+      // mapping between Pyright's view (preamble + user code) and
+      // the user's editor view (user code only).  The trailing `\n`
+      // of the preamble merges with the user's first line on
+      // concatenation, so lineCount must equal `text.split('\n')
+      // .length - 1` — NOT `.length`, which would shift every
+      // hover position to the line below the user's cursor.
+      const result = generatePythonLspPreamble([
+        makeScalar('a', 'input', 'INT'),
+        makeScalar('b', 'output', 'BOOL'),
+        makeArray('c', 'input', 'REAL', '1..2'),
+      ])
+      const newlineCount = (result.text.match(/\n/g) ?? []).length
+      expect(result.lineCount).toBe(newlineCount)
+    })
+
+    it('places the user’s first line at augmented 0-indexed line `lineCount`', () => {
+      // Explicit regression: the LSP wrapper sends
+      // `preamble.text + userCode` to Pyright and offsets hover /
+      // completion positions by `lineCount`.  Without this
+      // invariant, hover info would describe the wrong variable.
+      const result = generatePythonLspPreamble([makeScalar('x', 'input', 'BOOL')])
+      const userFirstLine = 'first_user_line'
+      const augmented = result.text + userFirstLine
+      const lines = augmented.split('\n')
+      expect(lines[result.lineCount]).toBe(userFirstLine)
+    })
+
+    it('ends with a blank separator so the user code begins on its own line', () => {
+      // Pyright sees `<preamble><user-code>`; without the trailing
+      // blank, the last declaration would butt against the user's
+      // first source line and shift line numbering by one.  The blank
+      // line keeps the offset clean.
+      const result = generatePythonLspPreamble([makeScalar('x', 'input', 'INT')])
+      expect(result.text.endsWith('\n\n')).toBe(true)
+    })
+  })
+
+  describe('variableNameByPreambleLine', () => {
+    it('is empty when no variables produce declaration lines', () => {
+      expect(generatePythonLspPreamble([]).variableNameByPreambleLine.size).toBe(0)
+      // `temp` is the class a Python block cannot express, so it is the one that
+      // produces no declaration. A `local` does become a module global now.
+      expect(generatePythonLspPreamble([makeScalar('x', 'temp', 'BOOL')]).variableNameByPreambleLine.size).toBe(0)
+    })
+
+    it('maps each declaration line to the corresponding variable name in order', () => {
+      const result = generatePythonLspPreamble([
+        makeScalar('ValveState', 'input', 'BOOL'),
+        makeScalar('DidPrint', 'output', 'BOOL'),
+      ])
+      // Header occupies lines 0-4; declarations start at line 5.
+      expect(result.variableNameByPreambleLine.get(5)).toBe('ValveState')
+      expect(result.variableNameByPreambleLine.get(6)).toBe('DidPrint')
+      expect(result.variableNameByPreambleLine.size).toBe(2)
+    })
+
+    it('skips variables whose type doesn’t map to a Python annotation (e.g. TIME)', () => {
+      const result = generatePythonLspPreamble([
+        makeScalar('CycleStart', 'input', 'TIME'), // unsupported → no preamble line
+        makeScalar('ValveState', 'input', 'BOOL'), // first emitted line
+      ])
+      expect(result.variableNameByPreambleLine.size).toBe(1)
+      expect(result.variableNameByPreambleLine.get(5)).toBe('ValveState')
+    })
+
+    it('locks the mapping to the actual declaration text in the same preamble', () => {
+      // Spot-check that the line number we record matches where the
+      // variable name actually appears in `text` — guards against the
+      // header line count drifting out of sync with the offset.
+      const result = generatePythonLspPreamble([makeScalar('Flag', 'input', 'BOOL')])
+      const lines = result.text.split('\n')
+      for (const [line, name] of result.variableNameByPreambleLine) {
+        expect(lines[line].startsWith(`${name}:`)).toBe(true)
+      }
+    })
+  })
+})

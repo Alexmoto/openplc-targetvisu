@@ -1,0 +1,710 @@
+import * as Switch from '@radix-ui/react-switch'
+import { toast } from '@root/frontend/components/_features/[app]/toast/use-toast'
+import { useOpenPLCStore, useOpenPLCStoreApi } from '@root/frontend/store'
+import type { LibraryState } from '@root/frontend/store/slices/library'
+import { cn } from '@root/frontend/utils/cn'
+import { hasLegacyInOutOutputHandle } from '@root/frontend/utils/graphical/in-out-pin-rules'
+import {
+  assembleVariables,
+  buildNextExtensibleInput,
+  classifyBlockVariables,
+  getMinInputCount,
+  rebuildVariablesForInputCount,
+  removeLastExtensibleInput,
+} from '@root/frontend/utils/PLC/extensible-block-variables'
+import { PLCPou } from '@root/middleware/shared/ports'
+import { useEffect, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
+
+import { BlockNode, BlockNodeData, BlockNodeElement } from '../../../../../../../_atoms/graphical-editor/fbd/block'
+import { buildBlockNode } from '../../../../../../../_atoms/graphical-editor/fbd/buildNodes'
+import { BasicNodeData } from '../../../../../../../_atoms/graphical-editor/fbd/utils/types'
+import { getBlockSize } from '../../../../../../../_atoms/graphical-editor/fbd/utils/utils'
+import { getFBDPouVariablesRungNodeAndEdges } from '../../../../../../../_atoms/graphical-editor/fbd/utils/utils'
+import { BlockVariant } from '../../../../../../../_atoms/graphical-editor/types/block'
+import { getBlockDocumentation, getVariableRestrictionType } from '../../../../../../../_atoms/graphical-editor/utils'
+import { InputWithRef } from '../../../../../../../_atoms/input'
+import { Modal, ModalContent, ModalTitle } from '../../../../../../../_molecules/modal'
+import { useBoundEditorModel, useBoundPou } from '../../../active-context'
+import ArrowButtonGroup from '../../arrow-button-group'
+import { ModalBlockLibrary } from './library'
+
+type BlockElementProps<T> = {
+  isOpen: boolean
+  onClose?: () => void
+  selectedNode: BlockNode<T>
+}
+
+// `boundPouName` is the editor's bound POU (from `useBoundPou()`);
+// the filter narrows the library list to functions only when the
+// host POU itself is a function (functions can only call functions).
+const searchLibraryByPouName = (
+  libraries: LibraryState['libraries'],
+  boundPouName: string,
+  pous: PLCPou[],
+  pouName: string,
+) => {
+  let libraryBlock: unknown = undefined
+
+  const filteredLibraries = libraries.system.filter((library) =>
+    pous.find((pou) => pou.name === boundPouName)?.pouType === 'function'
+      ? library.pous.some((pou) => pou.type === 'function')
+      : true,
+  )
+
+  for (const block of filteredLibraries) {
+    const foundPou = block.pous.find((pou) => pou.name === pouName)
+    if (foundPou) {
+      libraryBlock = foundPou
+      break
+    }
+  }
+
+  return libraryBlock
+}
+
+const BlockElement = <T extends object>({ isOpen, onClose, selectedNode }: BlockElementProps<T>) => {
+  const store = useOpenPLCStoreApi()
+  const pouName = useBoundPou()
+  const editor = useBoundEditorModel()
+  const updateModelVariables = useOpenPLCStore((state) => state.editorActions.updateModelVariables)
+  const { setNodes, setEdges } = useOpenPLCStore((state) => state.fbdFlowActions)
+  const pous = useOpenPLCStore((state) => state.project.data.pous)
+  const { updateVariable, deleteVariable } = useOpenPLCStore((state) => state.projectActions)
+  const libraries = useOpenPLCStore((state) => state.libraries)
+  const onOpenChange = useOpenPLCStore((state) => state.modalActions.onOpenChange)
+
+  const maxInputs = 20
+
+  const inputNameRef = useRef<HTMLInputElement>(null)
+  const inputInputsRef = useRef<HTMLInputElement>(null)
+
+  const [node, setNode] = useState<BlockNode<object>>(selectedNode)
+  const blockVariant = node.data.variant as BlockVariant
+
+  const [isExecutionOrderFocused, setIsExecutionOrderFocused] = useState(false)
+  const [selectedFileKey, setSelectedFileKey] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<BlockVariant | null>(null)
+  const [documentation, setDocumentation] = useState<string | null>(getBlockDocumentation(blockVariant))
+  const [formState, setFormState] = useState<{
+    name: string
+    inputs: string
+    executionOrder: string
+    executionControl: boolean
+  }>({
+    name: blockVariant.name === '???' ? '' : blockVariant.name,
+    inputs:
+      blockVariant?.variables
+        .filter((variable) => (variable.class === 'input' || variable.class === 'inOut') && variable.name !== 'EN')
+        .length.toString() || '0',
+    executionOrder: selectedNode.data.executionOrder.toString(),
+    executionControl: selectedNode.data.executionControl,
+  })
+
+  const isFormValid = Object.values(formState).every((value) => value !== '')
+  const isBlockDifferent = selectedNode !== node
+
+  // The execution order this dialog opened with. `useRef` keeps the first
+  // render's value for the life of the dialog, and the modal is mounted
+  // conditionally, so reopening it recaptures a fresh baseline.
+  const initialExecutionOrder = useRef(formState.executionOrder)
+
+  // Execution order is the ONE field `isBlockDifferent` cannot see. Every
+  // other control in this dialog also calls `setNode` -- input count, the
+  // execution-control switch, and a name that resolves to a library block --
+  // which replaces `node` and so already enabled OK. The arrows and the
+  // execution-order field call `setFormState` alone, so the value could be
+  // typed but never applied (DOPE-606).
+  //
+  // Deliberately NOT keyed on `formState.name`: `handleBlockSubmit` builds the
+  // new node from `blockVariant`, never from the typed name, so enabling OK
+  // for a name that resolves to nothing would rebuild the node and discard
+  // what was typed without saying so.
+  const isExecutionOrderDirty = formState.executionOrder !== initialExecutionOrder.current
+
+  useEffect(() => {
+    if (!selectedFileKey) return
+
+    const [type, selectedLibrary, selectedPou] = selectedFileKey?.split('/') || []
+    if (type === 'system' && selectedLibrary && selectedPou) {
+      const library = libraries.system.find((library) => library.name === selectedLibrary)
+      const pou = library?.pous.find((pou) => pou.name === selectedPou) as BlockVariant
+      setSelectedFile(pou)
+      return
+    }
+    if (type === 'user' && selectedLibrary) {
+      const library = libraries.user.find((library) => library.name === selectedLibrary)
+      if (library) {
+        setSelectedFile(library as BlockVariant)
+        return
+      }
+    }
+    setSelectedFile(null)
+  }, [selectedFileKey])
+
+  useEffect(() => {
+    if (selectedFile && selectedFile !== selectedNode.data.variant) {
+      const [type, _selectedLibrary, _selectedPou] = selectedFileKey?.split('/') || []
+
+      let pouLibrary = undefined
+      if (type === 'user') {
+        const pou = pous.find((pou) => pou.name === selectedFile?.name)
+        if (!pou) return
+        const variables = (pou.interface?.variables ?? []).map((variable) => ({
+          name: variable.name,
+          class: variable.class,
+          type: { definition: variable.type.definition, value: variable.type.value.toUpperCase() },
+        }))
+        if (pou.pouType === 'function') {
+          const returnType = pou.interface?.returnType ?? ''
+          const variable = getVariableRestrictionType(returnType)
+          variables.push({
+            name: 'OUT',
+            class: 'output',
+            type: {
+              definition: (variable.definition as 'array' | 'base-type' | 'user-data-type' | 'derived') ?? 'derived',
+              value: returnType.toUpperCase(),
+            },
+          })
+        }
+
+        pouLibrary = {
+          name: pou.name,
+          type: pou.pouType as 'function-block' | 'function',
+          variables: variables,
+          documentation: pou.documentation,
+          extensible: false,
+        }
+      }
+
+      const newNode = buildBlockNode({
+        id: node.id,
+        position: {
+          x: node.position.x,
+          y: node.position.y,
+        },
+        variant: pouLibrary ?? selectedFile,
+        executionControl: formState.executionControl,
+      })
+      setNode({
+        ...newNode,
+        data: {
+          ...newNode.data,
+          executionOrder: Number(formState.executionOrder),
+          variable: selectedNode.data.variable,
+        },
+      })
+
+      const newNodeDataVariant = newNode.data.variant as BlockVariant
+      const formName: string = newNodeDataVariant.name
+      const formInputs: string = newNodeDataVariant.variables
+        .filter((variable) => (variable.class === 'input' || variable.class === 'inOut') && variable.name !== 'EN')
+        .length.toString()
+
+      setFormState((prevState) => ({
+        ...prevState,
+        name: formName,
+        inputs: formInputs,
+        executionControl: newNode.data.executionControl,
+      }))
+      setDocumentation(getBlockDocumentation(newNodeDataVariant))
+    }
+  }, [selectedFile])
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { id, value } = e.target
+    let formValue = value
+    if (id === 'name') {
+      formValue = value.toUpperCase()
+    }
+    setFormState((prevState) => ({ ...prevState, [id]: formValue }))
+  }
+
+  const handleNameInputSubmit = () => {
+    const libraryBlock = searchLibraryByPouName(libraries, pouName, pous, formState.name)
+    if (libraryBlock) {
+      setSelectedFile(libraryBlock as BlockVariant)
+    }
+  }
+
+  const handleInputsIncrement = () => {
+    if (Number(formState.inputs) >= maxInputs) return
+    setFormState((prevState) => ({
+      ...prevState,
+      inputs: String(Number(prevState.inputs) + 1),
+    }))
+
+    const newInput = buildNextExtensibleInput(blockVariant.variables)
+    const classified = classifyBlockVariables(blockVariant.variables)
+    classified.extensibleInputs.push(newInput)
+    const blockVariables = assembleVariables(classified) as BlockVariant['variables']
+
+    const { height } = getBlockSize({ ...blockVariant, variables: blockVariables } as BlockVariant, {
+      x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+      y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+    })
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...blockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  const handleInputsDecrement = () => {
+    const result = removeLastExtensibleInput(blockVariant.variables, 2)
+    if (!result) return
+
+    const nonENCount = result.filter((v) => (v.class === 'input' || v.class === 'inOut') && v.name !== 'EN').length
+    setFormState((prevState) => ({
+      ...prevState,
+      inputs: String(nonENCount),
+    }))
+
+    const blockVariables = result as BlockVariant['variables']
+
+    const { height } = getBlockSize(
+      { ...blockVariant, variables: blockVariables },
+      {
+        x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+        y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+      },
+    )
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...blockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  const handleInputsSubmit = (e: React.FocusEvent<HTMLInputElement>) => {
+    const { value: EventValue } = e.target
+    const minInputs = getMinInputCount(blockVariant.variables, 2)
+
+    const value = Math.max(minInputs, Math.min(Number(EventValue), maxInputs))
+    setFormState((prevState) => ({ ...prevState, inputs: String(value) }))
+
+    const blockVariables = rebuildVariablesForInputCount(blockVariant.variables, value) as BlockVariant['variables']
+
+    const { height } = getBlockSize(
+      { ...blockVariant, variables: blockVariables },
+      {
+        x: (node.data as BasicNodeData).inputConnector?.glbPosition.x || 0,
+        y: (node.data as BasicNodeData).inputConnector?.glbPosition.y || 0,
+      },
+    )
+
+    setNode((node) => ({
+      ...node,
+      height,
+      data: {
+        ...node.data,
+        variant: {
+          ...blockVariant,
+          variables: blockVariables,
+        },
+      },
+    }))
+  }
+
+  // Execution order is stored as a plain number, where 0 means "not ordered":
+  // the transpiler buckets anything > 0 ahead of everything else and sorts the
+  // rest by layout position, so 0 is the absence of an order rather than the
+  // lowest one. Showing a bare "0" read as "runs first" and meant the opposite,
+  // so the field renders it as None (DOPE-606).
+  const NO_EXECUTION_ORDER = '0'
+  const isNoExecutionOrder = (value: string) => value === '' || Number(value) === 0
+  const executionOrderDisplay = isExecutionOrderFocused
+    ? formState.executionOrder === NO_EXECUTION_ORDER
+      ? ''
+      : formState.executionOrder
+    : isNoExecutionOrder(formState.executionOrder)
+      ? 'None'
+      : formState.executionOrder
+
+  /** Digits only — a leading `-` is dropped rather than rejected on submit. */
+  const handleExecutionOrderChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const digits = event.target.value.replace(/[^0-9]/g, '')
+    setFormState((prevState) => ({
+      ...prevState,
+      executionOrder: digits === '' ? NO_EXECUTION_ORDER : String(Number(digits)),
+    }))
+  }
+
+  // Blank the field while it has focus so the user types over "None" rather
+  // than around it; restore the label on the way out.
+  const handleExecutionOrderFocus = () => setIsExecutionOrderFocused(true)
+  const handleExecutionOrderBlur = () => setIsExecutionOrderFocused(false)
+
+  const handleExecutionOrderIncrement = () => {
+    setFormState((prevState) => ({
+      ...prevState,
+      executionOrder: String(Number(prevState.executionOrder) + 1),
+    }))
+  }
+
+  const handleExecutionOrderDecrement = () => {
+    // Floors at 0, which is None. There is no upper clamp: execution order is
+    // an ordering key, not a count, and the old ceiling reused `maxInputs`.
+    setFormState((prevState) => ({
+      ...prevState,
+      executionOrder: String(Math.max(Number(prevState.executionOrder) - 1, 0)),
+    }))
+  }
+
+  const handleExecutionControlChange = (checked: boolean) => {
+    setFormState((prevState) => ({ ...prevState, executionControl: checked }))
+
+    const newNode = buildBlockNode({
+      id: node.id,
+      position: {
+        x: node.position.x,
+        y: node.position.y,
+      },
+      variant: blockVariant,
+      executionControl: checked,
+    })
+
+    setNode({
+      ...newNode,
+      data: { ...newNode.data, variable: selectedNode.data.variable },
+    })
+  }
+
+  const handleClearForm = () => {
+    setFormState({ name: '', inputs: '', executionOrder: '0', executionControl: false })
+    setSelectedFileKey(null)
+    setSelectedFile(null)
+  }
+
+  const handleCloseModal = () => {
+    handleClearForm()
+    if (onClose) onClose()
+  }
+
+  const handleBlockSubmit = () => {
+    // A block still drawn with a VAR_IN_OUT pin on BOTH sides has not been
+    // converted yet, and rebuilding it here drops that output-side pin -- so
+    // any wire reading the pin would be left pointing at a handle the new node
+    // does not have. Converting it as a side effect of an unrelated edit would
+    // also break the promise the project-open warning makes ("nothing is
+    // changed until you do"), so refuse and point at the update badge, the way
+    // the update path itself refuses an ambiguous in-out feed.
+    //
+    // `selectedNode` FIRST, and not `node` alone: picking a replacement variant
+    // rebuilds `node` under current rules, which clears the legacy pin from the
+    // copy while the diagram edges being remapped below are still the original
+    // node's. Checking only the rebuilt copy let the swap path walk straight
+    // past this guard.
+    if (hasLegacyInOutOutputHandle(selectedNode) || hasLegacyInOutOutputHandle(node)) {
+      toast({
+        title: 'Update this block first',
+        description:
+          'It is still drawn with a VAR_IN_OUT pin on both sides. Hover the block and click its ' +
+          'update badge to convert it, then reapply this change.',
+        variant: 'fail',
+      })
+      return
+    }
+
+    const newNode = buildBlockNode({
+      id: `BLOCK_${uuidv4()}`,
+      position: {
+        x: selectedNode.position.x,
+        y: selectedNode.position.y,
+      },
+      variant: blockVariant,
+      executionControl: formState.executionControl,
+    })
+    newNode.data = {
+      ...newNode.data,
+      executionOrder: Number(formState.executionOrder),
+    }
+
+    const { fbdFlows } = store.getState()
+    const { rung, edges, variables } = getFBDPouVariablesRungNodeAndEdges(pouName, pous, fbdFlows, {
+      nodeId: selectedNode.id,
+    })
+    if (!rung) return
+
+    if (variables.selected && variables.all) {
+      if (blockVariant.type === 'function') {
+        deleteVariable({
+          rowId: variables.all.indexOf(variables.selected),
+          scope: 'local',
+          associatedPou: pouName,
+        })
+        if (
+          editor.type === 'plc-graphical' &&
+          editor.variable.display === 'table' &&
+          parseInt(editor.variable.selectedRow) === variables.all.indexOf(variables.selected)
+        ) {
+          updateModelVariables({ display: 'table', selectedRow: -1 })
+        }
+        newNode.data = { ...newNode.data, variable: { name: '' } }
+      } else {
+        updateVariable({
+          data: {
+            type: {
+              definition: 'derived',
+              value: (newNode.data as BlockNodeData<BlockVariant>).variant.name,
+            },
+          },
+          rowId: variables.all.indexOf(variables.selected),
+          scope: 'local',
+          associatedPou: pouName,
+        })
+        newNode.data = { ...newNode.data, variable: variables.selected }
+      }
+    }
+
+    let newNodes = [...rung.nodes]
+    let newEdges = [...rung.edges]
+
+    newNodes = newNodes.map((n) => (n.id === node.id ? newNode : n))
+
+    // Re-point this node's edges onto the rebuilt node BY PIN NAME.
+    //
+    // Every edge used to be forced onto `inputConnector` / `outputConnector`,
+    // which are just the FIRST pin on each side -- so a block with two or more
+    // inputs had all of its input wires collapsed onto IN1 and the wires to
+    // IN2, IN3 ... were lost. Two wires on one pin transpile as a parallel
+    // combination, so `SUB(acc, 3)` came out as `SUB(IN1 := 3 OR acc)` and
+    // failed to compile; with same-typed pins it would have changed the logic
+    // and still built (DOPE-611).
+    //
+    // A pin that still exists on the rebuilt node keeps its wire. That covers
+    // the whole same-variant case -- an execution-order edit rebuilds the node
+    // with an identical pin set, so nothing moves at all -- and it also
+    // preserves the matching pins when the variant is swapped for one that
+    // shares names. A wire whose pin is genuinely gone cannot be re-pointed
+    // anywhere honest, so it is dropped and reported rather than silently
+    // piled onto the first pin.
+    // Handle type taken from the node itself, so this cannot drift from the
+    // builder and needs neither an import nor an assertion.
+    const pinIds = (handles: typeof newNode.data.inputHandles): Set<string> =>
+      new Set((handles ?? []).map((handle) => handle.id).filter((id): id is string => !!id))
+    const newInputPins = pinIds(newNode.data.inputHandles)
+    const newOutputPins = pinIds(newNode.data.outputHandles)
+
+    // One pass over the affected edges, keyed by id, so an edge that is BOTH a
+    // source and a target of this block -- a self-loop, which the canvas allows
+    // -- has both endpoints resolved together. Two passes rewrote the id on the
+    // first and then failed to find the edge on the second, leaving the other
+    // endpoint pointing at a node that no longer exists.
+    const affected = new Map<string, (typeof newEdges)[number]>()
+    for (const edge of [...(edges.source ?? []), ...(edges.target ?? [])]) affected.set(edge.id, edge)
+
+    const replacements = new Map<string, (typeof newEdges)[number] | null>()
+    for (const edge of affected.values()) {
+      let next = { ...edge, id: edge.id.replace(node.id, newNode.id) }
+      let drop = false
+
+      if (edge.source === selectedNode.id) {
+        if (edge.sourceHandle && newOutputPins.has(edge.sourceHandle)) next = { ...next, source: newNode.id }
+        else drop = true
+      }
+      if (!drop && edge.target === selectedNode.id) {
+        if (edge.targetHandle && newInputPins.has(edge.targetHandle)) next = { ...next, target: newNode.id }
+        else drop = true
+      }
+      replacements.set(edge.id, drop ? null : next)
+    }
+
+    // Replace IN PLACE, never append: an id from `edges` that is no longer in
+    // `newEdges` must stay gone rather than being resurrected alongside it.
+    let droppedWires = 0
+    newEdges = newEdges.flatMap((edge) => {
+      if (!replacements.has(edge.id)) return [edge]
+      const replacement = replacements.get(edge.id) ?? null
+      if (replacement === null) {
+        droppedWires += 1
+        return []
+      }
+      return [replacement]
+    })
+
+    if (droppedWires > 0) {
+      toast({
+        title: `${droppedWires} connection${droppedWires === 1 ? '' : 's'} removed`,
+        description:
+          `The replacement block has no matching pin for ${droppedWires === 1 ? 'it' : 'them'}. ` +
+          'Reconnect to the pins you want.',
+        variant: 'fail',
+      })
+    }
+
+    setNodes({
+      editorName: pouName,
+      nodes: newNodes,
+    })
+    setEdges({
+      editorName: pouName,
+      edges: newEdges,
+    })
+
+    handleCloseModal()
+  }
+
+  const labelStyle = 'text-sm font-medium text-neutral-950 dark:text-white'
+  const inputStyle =
+    'border dark:bg-neutral-900 dark:text-neutral-100 dark:border-neutral-850 h-[30px] w-full rounded-lg border-neutral-300 px-[10px] text-xs text-neutral-700 outline-none focus:border-brand'
+
+  return (
+    <Modal open={isOpen} onOpenChange={(open) => onOpenChange('block-fbd-element', open)}>
+      {/* <ModalTrigger>Open</ModalTrigger> */}
+      <ModalContent
+        onEscapeKeyDown={(event) => {
+          event.preventDefault()
+          handleCloseModal()
+        }}
+        onPointerDownOutside={(event) => {
+          event.preventDefault()
+          handleCloseModal()
+        }}
+        className='h-[739px] w-[625px] select-none flex-col gap-8 px-14 py-4'
+      >
+        <ModalTitle className='text-xl font-medium text-neutral-950 dark:text-white'>Block Properties</ModalTitle>
+        <div className='flex h-[587px] w-full justify-between'>
+          <div id='container-modifier-variable' className='h-full w-[236px]'>
+            <div className='flex h-full w-full flex-col gap-2'>
+              <label className={labelStyle}>Type:</label>
+              <ModalBlockLibrary selectedFileKey={selectedFileKey} setSelectedFileKey={setSelectedFileKey} />
+              <div className='border-neural-100 h-full max-h-[119px] overflow-hidden rounded-lg border px-1 py-4 text-xs font-normal text-neutral-950 dark:border-neutral-850 dark:text-neutral-100'>
+                <div className='h-full overflow-y-auto'>
+                  <span className='h-full whitespace-pre-line px-1 dark:text-neutral-100'>{documentation}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div id='preview' className='flex h-full w-[236px] flex-col gap-2'>
+            <label htmlFor='name' className={labelStyle}>
+              Name:
+            </label>
+            <InputWithRef
+              id='name'
+              ref={inputNameRef}
+              className={inputStyle}
+              placeholder='???'
+              type='text'
+              value={formState.name}
+              onChange={handleInputChange}
+              onBlur={handleNameInputSubmit}
+              onKeyDown={(e) => e.key === 'Enter' && inputNameRef.current?.blur()}
+            />
+            {blockVariant.type === 'function' && blockVariant.extensible && (
+              <>
+                <label htmlFor='inputs' className={labelStyle}>
+                  Inputs:
+                </label>
+                <div className='flex items-center gap-1'>
+                  <InputWithRef
+                    id='inputs'
+                    ref={inputInputsRef}
+                    className={inputStyle}
+                    placeholder=''
+                    type='number'
+                    value={formState.inputs}
+                    onChange={handleInputChange}
+                    onBlur={(e) => handleInputsSubmit(e)}
+                    onKeyDown={(e) => e.key === 'Enter' && inputInputsRef.current?.blur()}
+                  />
+                  <ArrowButtonGroup
+                    onIncrement={() => handleInputsIncrement()}
+                    onDecrement={() => handleInputsDecrement()}
+                  />
+                </div>
+              </>
+            )}
+            <label htmlFor='executionOrder' className={labelStyle}>
+              Execution Order:
+            </label>
+            <div className='flex items-center gap-1'>
+              <InputWithRef
+                id='executionOrder'
+                className={inputStyle}
+                placeholder=''
+                type='text'
+                inputMode='numeric'
+                value={executionOrderDisplay}
+                onChange={handleExecutionOrderChange}
+                onFocus={handleExecutionOrderFocus}
+                onBlur={handleExecutionOrderBlur}
+              />
+              <ArrowButtonGroup
+                onIncrement={() => handleExecutionOrderIncrement()}
+                onDecrement={() => handleExecutionOrderDecrement()}
+              />
+            </div>
+
+            <div className='flex items-center gap-2'>
+              <label htmlFor='executionControlSwitch' className={labelStyle}>
+                Execution Control:
+              </label>
+              <Switch.Root
+                className={cn(
+                  'relative h-4 w-[29px] cursor-pointer rounded-full bg-neutral-300 shadow-[0_4_4_1px] outline-none transition-all duration-150 data-[state=checked]:bg-brand dark:bg-neutral-850',
+                )}
+                id='executionControlSwitch'
+                onCheckedChange={handleExecutionControlChange}
+                checked={formState.executionControl}
+              >
+                <Switch.Thumb className='block h-[14px] w-[14px] translate-x-0.5 rounded-full bg-white shadow-[0_0_4_1px] transition-all duration-150 will-change-transform data-[state=checked]:translate-x-[14px]' />
+              </Switch.Root>
+            </div>
+
+            <label htmlFor='block-preview' className={labelStyle}>
+              Preview
+            </label>
+            <div
+              id='block-preview'
+              className='flex h-[330px] items-center justify-center rounded-lg border-[2px] border-brand-dark bg-transparent dark:border-neutral-850'
+            >
+              <BlockNodeElement
+                nodeId={node.id || ''}
+                data={node.data}
+                height={node.height || 0}
+                width={node.width || 0}
+                selected={false}
+                disabled={true}
+                scale={310 / ((node.height || 310) <= 310 ? 310 : node.height || 310)}
+              />
+            </div>
+          </div>
+        </div>
+        <div className='flex !h-8 w-full justify-evenly gap-7'>
+          <button
+            className='h-full w-[236px] items-center rounded-lg bg-neutral-100 text-center font-medium text-neutral-1000 dark:bg-neutral-850 dark:text-neutral-100'
+            onClick={handleCloseModal}
+          >
+            Cancel
+          </button>
+          <button
+            className={
+              'h-full w-[236px] items-center rounded-lg bg-brand text-center font-medium text-white disabled:cursor-not-allowed disabled:opacity-50'
+            }
+            disabled={!isFormValid || (!isExecutionOrderDirty && !isBlockDifferent)}
+            onClick={handleBlockSubmit}
+          >
+            Ok
+          </button>
+        </div>
+      </ModalContent>
+    </Modal>
+  )
+}
+
+export default BlockElement

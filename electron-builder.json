@@ -1,0 +1,116 @@
+{
+  "appId": "com.autonomylogic.openplceditor",
+  "productName": "OpenPLC Editor",
+  "asar": true,
+  "asarUnpack": "**\\*.{node,dll}",
+  "generateUpdatesFilesForAllChannels": true,
+  "files": ["dist", "node_modules", "package.json"],
+  "afterPack": "scripts/mac-inject-local-network-usage.js",
+  "afterSign": "scripts/notarize.js",
+  "directories": {
+    "app": "release/app",
+    "buildResources": "assets",
+    "output": "release/build"
+  },
+  "extraResources": [
+    "./assets/**",
+    {
+      "from": "./node_modules/strucpp/src/runtime/include",
+      "to": "./strucpp/runtime/include"
+    },
+    {
+      "from": "./node_modules/strucpp/libs",
+      "to": "./strucpp/libs"
+    }
+  ],
+  "mac": {
+    "extraResources": [
+      {
+        "from": "./resources/bin/darwin/${arch}",
+        "to": "./bin"
+      },
+      {
+        "from": "./resources/sources",
+        "to": "./sources"
+      }
+    ],
+    "target": {
+      "target": "default",
+      "arch": ["arm64", "x64"]
+    },
+    "extendInfo": {
+      "CFBundleDisplayName": "OpenPLC Editor",
+      "CFBundleName": "OpenPLC Editor",
+      "NSLocalNetworkUsageDescription": "OpenPLC Editor needs local network access to discover and connect to PLCs on your network."
+    },
+    "type": "distribution",
+    "hardenedRuntime": true,
+    "entitlements": "assets/entitlements.mac.plist",
+    "entitlementsInherit": "assets/entitlements.mac.plist",
+    "gatekeeperAssess": false,
+    "artifactName": "${productName}_${version}.${ext}"
+  },
+  "dmg": {
+    "artifactName": "${productName}_${version}.${ext}",
+    "title": "${productName}",
+    "format": "UDRW",
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ]
+  },
+  "win": {
+    "extraResources": [
+      {
+        "from": "./resources/bin/win32/${arch}",
+        "to": "./bin"
+      },
+      {
+        "from": "./resources/sources",
+        "to": "./sources"
+      }
+    ],
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      }
+    ],
+    "artifactName": "${productName}_${version}.${ext}"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": false,
+    "license": "LICENSE",
+    "runAfterFinish": true
+  },
+  "linux": {
+    "extraResources": [
+      {
+        "from": "./resources/bin/linux/${arch}",
+        "to": "./bin"
+      },
+      {
+        "from": "./resources/sources",
+        "to": "./sources"
+      }
+    ],
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64"]
+      }
+    ],
+    "category": "Development",
+    "artifactName": "${productName}-${version}.${ext}"
+  }
+}

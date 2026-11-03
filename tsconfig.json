@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "types": ["@testing-library/jest-dom", "node"],
+    "incremental": true,
+    "target": "es2022",
+    "module": "commonjs",
+    "lib": ["dom", "es2022"],
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "outDir": "configs/dll",
+    "paths": {
+      "@root/*": ["./src/*"]
+    }
+  },
+  "include": ["src"],
+  "exclude": [
+    "test",
+    "release/build",
+    "release/app/dist",
+    "configs/dll",
+    "src/__architecture__",
+    "src/**/__tests__",
+    "src/**/*.test.ts",
+    "src/**/*.test.tsx",
+    "src/**/*.spec.ts",
+    "src/**/*.spec.tsx"
+  ]
+}

@@ -1,0 +1,312 @@
+#!/usr/bin/env python3
+"""
+Compare byte-identical surfaces between openplc-editor and openplc-web.
+
+Surfaces checked (same src-relative path in both repos):
+  - frontend/          (UI layer)
+  - middleware/shared/  (ports + providers)
+  - backend/shared/    (application logic, use cases)
+  - __architecture__/  (validation scripts)
+
+Mapped surfaces (different path per repo, compared BOTH WAYS within the
+mapped base, minus declared desktop-only trees — see MAPPED_SURFACES):
+  - bare-metal-runtime  (editor: resources/sources/{arduino,Baremetal};
+                         web:    src/assets/firmware/{arduino,Baremetal})
+
+Every program file in these surfaces must be byte-identical across both
+repos. Test files (`__tests__/` directories, `*.test.ts(x)`, `*.spec.ts(x)`)
+are excluded — they're allowed to diverge (platform-specific mocks, adapter-
+only e2e suites) without indicating a real program-file drift.
+Exit code 0 = all identical, 1 = differences found.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+_TRACKED_CACHE: dict[Path, set[str] | None] = {}
+
+
+def tracked_files(repo: Path) -> set[str] | None:
+    """Repo-relative paths git tracks, or None if `repo` is not a git repo.
+
+    The comparison is about what the two REPOSITORIES contain, not what happens
+    to be sitting in a working directory. Walking the filesystem meant a stale
+    ignored tree on a developer's machine failed the gate while CI passed --
+    resources/sources/MatIEC, gitignored and untracked since strucpp replaced
+    it, produced exactly that. Build output, .DS_Store and half-deleted
+    experiments are the same class of noise."""
+    repo = repo.resolve()
+    if repo in _TRACKED_CACHE:
+        return _TRACKED_CACHE[repo]
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(repo), "ls-files", "-z"],
+            capture_output=True, check=True,
+        ).stdout.decode()
+        result: set[str] | None = {p for p in out.split("\0") if p}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        # Not a git repo, or no git available: fall back to the filesystem.
+        result = None
+    _TRACKED_CACHE[repo] = result
+    return result
+
+SURFACES = [
+    "frontend",
+    "middleware/shared",
+    "backend/shared",
+    "__architecture__",
+]
+
+# Surfaces that live at a DIFFERENT path in each repo (so they can't be a plain
+# src-relative entry in SURFACES). `editor`/`web` are repo-root-relative.
+#
+# Checked BOTH WAYS. The editor's tree is a superset only in trees the web bundle
+# deliberately does not ship; those are listed in `editor_only_prefixes` and
+# anything outside them must exist on both sides. A one-way check hid files
+# deleted from web and files added to the editor that web also needs.
+MAPPED_SURFACES = [
+    {
+        "name": "bare-metal-runtime",
+        "editor": "resources/sources",
+        "web": "src/assets/firmware",
+        # Only the C/C++ runtime sources are shared; the web bundle also keeps
+        # its own bundler glue here (e.g. an index.ts that imports the sources
+        # as strings) which the editor does not have.
+        "exts": [".cpp", ".hpp", ".c", ".h", ".ino"],
+        # Editor-only by design. Each is a desktop-compile concern the web
+        # bundle (AVR8js simulator) has no use for:
+        "editor_only_prefixes": [
+            "avr-libstdcpp/",         # AVR toolchain ships no C++ stdlib
+            "hal/",                   # ~30 per-board HALs; web simulates one
+            "show_properties_dummy/", # desktop sketch-probe stub
+        ],
+    },
+]
+
+
+def hash_file(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def is_test_file(path: Path) -> bool:
+    """True for test files/directories — same exclusion the architecture
+    validator (__architecture__/validate.ts) already applies to its own scan.
+    Test files are allowed to diverge between repos (platform-specific mocks,
+    adapter-only e2e suites) without indicating a real program-file drift."""
+    if "__tests__" in path.parts:
+        return True
+    name = path.name
+    return any(name.endswith(suffix) for suffix in (".test.ts", ".test.tsx", ".spec.ts", ".spec.tsx"))
+
+
+def collect_hashes(root: Path, surface: str) -> dict[str, str]:
+    base = root / surface
+    if not base.exists():
+        return {}
+    repo = root.parent
+    tracked = tracked_files(repo)
+    result = {}
+    for path in sorted(base.rglob("*")):
+        if not path.is_file() or is_test_file(path):
+            continue
+        if tracked is not None:
+            try:
+                repo_rel = str(path.resolve().relative_to(repo.resolve()))
+            except ValueError:
+                continue
+            if repo_rel not in tracked:
+                continue
+        rel = str(path.relative_to(root))
+        result[rel] = hash_file(path)
+    return result
+
+
+def compare_surface(
+    web_root: Path, editor_root: Path, surface: str
+) -> dict:
+    web_hashes = collect_hashes(web_root, surface)
+    editor_hashes = collect_hashes(editor_root, surface)
+    all_files = sorted(set(web_hashes) | set(editor_hashes))
+
+    diffs = []
+    for f in all_files:
+        in_web = f in web_hashes
+        in_editor = f in editor_hashes
+        if in_web and not in_editor:
+            diffs.append({"file": f, "reason": "only_in_web"})
+        elif in_editor and not in_web:
+            diffs.append({"file": f, "reason": "only_in_editor"})
+        elif web_hashes[f] != editor_hashes[f]:
+            diffs.append({"file": f, "reason": "hash_mismatch"})
+
+    return {
+        "match": len(diffs) == 0,
+        "files_checked": len(all_files),
+        "diffs": diffs,
+    }
+
+
+def collect_all_hashes(
+    base: Path, exts: list[str] | None = None, repo: Path | None = None
+) -> dict[str, str]:
+    """Hash every tracked file under `base`, keyed by the path relative to
+    `base`. When `exts` is given, only files with one of those suffixes are
+    included. Untracked and ignored files are skipped — see tracked_files()."""
+    result = {}
+    if not base.exists():
+        return result
+    ext_set = set(exts) if exts else None
+    tracked = tracked_files(repo) if repo is not None else None
+    for path in sorted(base.rglob("*")):
+        if not path.is_file() or is_test_file(path):
+            continue
+        if ext_set is not None and path.suffix not in ext_set:
+            continue
+        if tracked is not None:
+            try:
+                repo_rel = str(path.resolve().relative_to(repo.resolve()))
+            except ValueError:
+                continue
+            if repo_rel not in tracked:
+                continue
+        result[str(path.relative_to(base))] = hash_file(path)
+    return result
+
+
+def compare_mapped(web_repo: Path, editor_repo: Path, mapped: dict) -> dict:
+    """Two-way check over the mapped trees.
+
+    Every (filtered) file must exist on both sides and be byte-identical,
+    EXCEPT editor files under one of `editor_only_prefixes` — trees the web
+    bundle deliberately does not ship. Everything else being symmetric is what
+    stops a file going missing on one side unnoticed."""
+    web_base = web_repo / mapped["web"]
+    editor_base = editor_repo / mapped["editor"]
+    exts = mapped.get("exts")
+    web_hashes = collect_all_hashes(web_base, exts, web_repo)
+    editor_hashes = collect_all_hashes(editor_base, exts, editor_repo)
+
+    editor_only = tuple(mapped.get("editor_only_prefixes", ()))
+
+    diffs = []
+    for rel in sorted(set(web_hashes) | set(editor_hashes)):
+        in_web = rel in web_hashes
+        in_editor = rel in editor_hashes
+        if in_web and not in_editor:
+            diffs.append({"file": rel, "reason": "only_in_web"})
+        elif in_editor and not in_web:
+            # Declared desktop-only trees are the one legitimate asymmetry.
+            if rel.startswith(editor_only):
+                continue
+            diffs.append({"file": rel, "reason": "only_in_editor"})
+        elif web_hashes[rel] != editor_hashes[rel]:
+            diffs.append({"file": rel, "reason": "hash_mismatch"})
+
+    checked = len(set(web_hashes) | {r for r in editor_hashes
+                                     if not r.startswith(editor_only)})
+    return {
+        "match": len(diffs) == 0,
+        "files_checked": checked,
+        "diffs": diffs,
+        "mapped": {"editor": mapped["editor"], "web": mapped["web"]},
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Compare byte-identical surfaces between web and editor repos."
+    )
+    parser.add_argument(
+        "--web-root",
+        required=True,
+        type=Path,
+        help="Path to the web repo's src/ directory",
+    )
+    parser.add_argument(
+        "--editor-root",
+        required=True,
+        type=Path,
+        help="Path to the editor repo's src/ directory",
+    )
+    parser.add_argument(
+        "--github-annotations",
+        action="store_true",
+        help="Emit GitHub Actions annotations to stderr",
+    )
+    args = parser.parse_args()
+
+    surfaces = {}
+    total_diffs = 0
+
+    for surface in SURFACES:
+        result = compare_surface(args.web_root, args.editor_root, surface)
+        surfaces[surface] = result
+        total_diffs += len(result["diffs"])
+
+    # Mapped surfaces are repo-root-relative; the repo root is the parent of
+    # the src dir passed for --web-root/--editor-root.
+    web_repo = args.web_root.parent
+    editor_repo = args.editor_root.parent
+    for mapped in MAPPED_SURFACES:
+        result = compare_mapped(web_repo, editor_repo, mapped)
+        surfaces[mapped["name"]] = result
+        total_diffs += len(result["diffs"])
+
+    total_files = sum(s["files_checked"] for s in surfaces.values())
+    overall_match = all(s["match"] for s in surfaces.values())
+
+    output = {
+        "match": overall_match,
+        "surfaces": surfaces,
+        "total_files": total_files,
+        "total_diffs": total_diffs,
+    }
+
+    # JSON to stdout (machine-readable)
+    print(json.dumps(output))
+
+    # GitHub annotations to stderr
+    if args.github_annotations:
+        for surface, result in surfaces.items():
+            if result["match"]:
+                continue
+            mapped = result.get("mapped")
+            for diff in result["diffs"]:
+                reason = diff["reason"]
+                filepath = diff["file"]
+                if mapped:
+                    # Mapped surfaces sit at a different path per repo, so there
+                    # is no single src-relative anchor; reference both sides.
+                    ew = f"{mapped['editor']}/{filepath}"
+                    ww = f"{mapped['web']}/{filepath}"
+                    if reason == "only_in_web":
+                        msg = f"[{surface}] File exists only in web repo: {ww}"
+                    elif reason == "only_in_editor":
+                        msg = f"[{surface}] File exists only in editor repo: {ew}"
+                    else:
+                        msg = f"[{surface}] File differs between repos: editor {ew} vs web {ww}"
+                    print(f"::error::{msg}", file=sys.stderr)
+                else:
+                    if reason == "only_in_web":
+                        msg = f"[{surface}] File exists only in web repo: src/{filepath}"
+                    elif reason == "only_in_editor":
+                        msg = f"[{surface}] File exists only in editor repo: src/{filepath}"
+                    else:
+                        msg = f"[{surface}] File differs between repos: src/{filepath}"
+                    print(f"::error file=src/{filepath}::{msg}", file=sys.stderr)
+
+    return 0 if overall_match else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

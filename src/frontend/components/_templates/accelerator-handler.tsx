@@ -1,0 +1,525 @@
+import { useCallback, useEffect } from 'react'
+
+import { useAccelerator, useCapabilities, useProject, useTheme, useWindow } from '../../../middleware/shared/providers'
+import { executeExportPlcopen } from '../../services/export-actions'
+import { openDiagnosticsTab } from '../../services/io-diagnostics/open-tab'
+import { requestAppRefresh } from '../../services/refresh-app'
+import { restoreOpenProjectRoot } from '../../services/restore-open-project-root'
+import { executeSaveActiveFile, executeSaveProject } from '../../services/save-actions'
+import { executeSaveProjectAs } from '../../services/save-project-as'
+import { type OpenPLCStore, useOpenPLCStore, useOpenPLCStoreApi } from '../../store'
+import type { ModalTypes } from '../../store/slices/modal'
+import { canExportPdf } from '../../utils/print-availability'
+import { toast } from '../_features/[app]/toast/use-toast'
+
+const quitAppRequest = (isUnsaved: boolean, openModal: (modal: ModalTypes, data?: unknown) => void) => {
+  if (isUnsaved) {
+    openModal('save-changes-project', {
+      validationContext: 'close-app',
+    })
+    return
+  }
+  openModal('quit-application', null)
+}
+
+// The native menu disables project-only items on the start screen; this covers a keypress that beats the rebuild.
+const hasOpenProject = (store: OpenPLCStore) => store.getState().project.meta.path !== ''
+
+const AcceleratorHandler = () => {
+  const accelerator = useAccelerator()
+  const projectPort = useProject()
+  const windowPort = useWindow()
+  const themePort = useTheme()
+  const capabilities = useCapabilities()
+  const store = useOpenPLCStoreApi()
+
+  const {
+    project,
+    editor: { meta },
+    workspace: { editingState, systemConfigs, close },
+    modalActions: { openModal },
+    sharedWorkspaceActions: { closeProject, handleOpenProjectResponse },
+    workspaceActions: { setSystemConfigs, toggleMaximizedWindow, setCloseWindow, setModalOpen, toggleCollapse },
+    tabsActions: { removeTab },
+    pouActions: { deleteRequest: deletePouRequest },
+    datatypeActions: { deleteRequest: deleteDatatypeRequest },
+    snapshotActions: { undo, redo },
+  } = useOpenPLCStore()
+  const isMonacoFocused: boolean = useOpenPLCStore((state) => state.isMonacoFocused)
+  const selectedProjectTreeLeaf = useOpenPLCStore((state) => state.workspace.selectedProjectTreeLeaf)
+
+  const executeSave = useCallback(
+    () => executeSaveProject(store, projectPort, capabilities),
+    [store, projectPort, capabilities],
+  )
+
+  /**
+   * Export to PLCopen XML from the native File menu: same action the React menubar runs.
+   */
+  useEffect(() => {
+    if (!capabilities.hasProjectExport) return
+
+    const unsub = accelerator.onExportProject(() => {
+      if (!hasOpenProject(store)) return
+      void executeExportPlcopen(store, projectPort)
+    })
+    return unsub
+  }, [store, accelerator, projectPort, capabilities.hasProjectExport])
+
+  /**
+   * Create project
+   */
+  useEffect(() => {
+    const unsub = accelerator.onCreateProject(() => {
+      if (editingState !== 'unsaved') {
+        openModal('create-project', null)
+      } else {
+        openModal('save-changes-project', {
+          validationContext: 'create-project',
+        })
+      }
+    })
+    return unsub
+  }, [editingState, accelerator, openModal])
+
+  /**
+   * Open project via file picker
+   *
+   * Mirrors the start-screen's `handleOpenProject` flow: the picker
+   * returns `{ success, data }` and the renderer must dispatch
+   * `handleOpenProjectResponse(data)` to actually load the project
+   * into the store.  Discarding the promise (`void
+   * projectPort.openProject()`) opened the picker but threw the
+   * result on the floor, so File → Open silently no-op'd after the
+   * user picked a folder — only the start-screen shortcut worked.
+   */
+  useEffect(() => {
+    const unsub = accelerator.onOpenProject(() => {
+      switch (editingState) {
+        case 'saved':
+        case 'initial-state':
+          void (async () => {
+            const openPath = store.getState().project.meta.path
+            const result = await projectPort.openProject().catch(() => null)
+            if (result?.success && result.data) {
+              handleOpenProjectResponse(result.data)
+              return
+            }
+            if (result) return
+            restoreOpenProjectRoot(projectPort, openPath)
+            toast({
+              title: 'Cannot open the project.',
+              description: 'The selected project could not be loaded.',
+              variant: 'fail',
+            })
+          })()
+          break
+        case 'unsaved':
+          openModal('save-changes-project', {
+            validationContext: 'open-project',
+          })
+          break
+        case 'save-request':
+          toast({
+            title: 'Save in progress',
+            description: 'Please wait for the current save operation to complete.',
+            variant: 'warn',
+          })
+          break
+        default:
+          return
+      }
+    })
+    return unsub
+  }, [store, editingState, accelerator, openModal, projectPort, handleOpenProjectResponse])
+
+  /**
+   * Open recent project (editor-specific — the native Recent menu sends the project path)
+   */
+  const openRecentProject = useCallback(
+    async (projectPath: string, changesConfirmed: boolean) => {
+      const openPath = store.getState().project.meta.path
+      const result = await projectPort.openProjectByPath(projectPath).catch(() => null)
+      if (result?.success && result.data) {
+        const data = result.data
+        // An edit made while the read was pending has not been through the save prompt yet.
+        if (!changesConfirmed && store.getState().workspace.editingState === 'unsaved') {
+          openModal('save-changes-project', {
+            validationContext: 'open-recent-project',
+            onAfterAction: () => handleOpenProjectResponse(data),
+            onActionAborted: () => restoreOpenProjectRoot(projectPort, openPath),
+          })
+          return
+        }
+        handleOpenProjectResponse(data)
+        return
+      }
+      if (!result) restoreOpenProjectRoot(projectPort, openPath)
+      toast({
+        title: 'Cannot open the project.',
+        description: result?.error?.description ?? `The path ${projectPath} does not exist on this computer.`,
+        variant: 'fail',
+      })
+    },
+    [store, projectPort, openModal, handleOpenProjectResponse],
+  )
+
+  useEffect(() => {
+    const unsub = accelerator.onOpenRecent((projectPath: string) => {
+      switch (editingState) {
+        case 'saved':
+        case 'initial-state':
+          void openRecentProject(projectPath, false)
+          break
+        case 'unsaved':
+          openModal('save-changes-project', {
+            validationContext: 'open-recent-project',
+            onAfterAction: () => void openRecentProject(projectPath, true),
+          })
+          break
+        case 'save-request':
+          toast({
+            title: 'Save in progress',
+            description: 'Please wait for the current save operation to complete.',
+            variant: 'warn',
+          })
+          break
+        default:
+          return
+      }
+    })
+    return unsub
+  }, [editingState, accelerator, openModal, openRecentProject])
+
+  /**
+   * Close project
+   */
+  useEffect(() => {
+    const unsub = accelerator.onCloseProject(() => {
+      if (!hasOpenProject(store)) return
+      closeProject()
+    })
+    return unsub
+  }, [store, editingState, accelerator, closeProject])
+
+  /**
+   * Save project (Cmd+Shift+S)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onSaveProject(() => {
+      if (!hasOpenProject(store)) return
+      void executeSave()
+    })
+    return unsub
+  }, [store, accelerator, executeSave])
+
+  /**
+   * Save As (Cmd+Shift+A)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onSaveProjectAs(() => {
+      if (!hasOpenProject(store)) return
+      void executeSaveProjectAs(store, projectPort, capabilities)
+    })
+    return unsub
+  }, [accelerator, capabilities, projectPort, store])
+
+  /**
+   * Retrieve Project from PLC
+   *
+   * The native application menu is the only File menu on macOS and Linux — the
+   * in-app menubar renders on Windows alone — so the item there has to reach the
+   * same modal the React menu opens. Reachable whether or not a device is
+   * connected: the modal owns the connection handling.
+   */
+  useEffect(() => {
+    const unsub = accelerator.onRetrieveProject(() => {
+      openModal('retrieve-project', null)
+    })
+    return unsub
+  }, [accelerator, openModal])
+
+  useEffect(() => {
+    const unsub = accelerator.onImportPlcopen(() => {
+      openModal('confirm-plcopen-import', null)
+    })
+    return unsub
+  }, [accelerator, openModal])
+
+  /**
+   * Delete file
+   */
+  useEffect(() => {
+    const handleDelete = () => {
+      const { label, type } = selectedProjectTreeLeaf
+      if (!type || !label) {
+        toast({
+          title: 'Error',
+          description: 'No file selected to delete.',
+          variant: 'fail',
+        })
+        return
+      }
+
+      const isPou = ['function', 'function-block', 'program'].includes(type)
+      const isDatatype = type === 'data-type'
+
+      if (isPou) {
+        deletePouRequest(label)
+      } else if (isDatatype) {
+        deleteDatatypeRequest(label)
+      } else {
+        toast({
+          title: 'Error',
+          description: 'This element cannot be deleted.',
+          variant: 'fail',
+        })
+        return
+      }
+    }
+
+    const unsub = accelerator.onDeleteFile(() => {
+      if (!hasOpenProject(store)) return
+      handleDelete()
+    })
+    return unsub
+  }, [store, selectedProjectTreeLeaf, accelerator, deletePouRequest, deleteDatatypeRequest])
+
+  /**
+   * Close tab
+   */
+  useEffect(() => {
+    const unsub = accelerator.onCloseTab(() => {
+      if (!hasOpenProject(store)) return
+      removeTab(selectedProjectTreeLeaf.label)
+    })
+    return unsub
+  }, [store, selectedProjectTreeLeaf, accelerator, removeTab])
+
+  /**
+   * Save file (Cmd+S) — saves only the active file
+   */
+  useEffect(() => {
+    const unsub = accelerator.onSaveFile(() => {
+      void executeSaveActiveFile(store, projectPort, capabilities)
+    })
+    return unsub
+  }, [accelerator, projectPort, capabilities, store])
+
+  /**
+   * Print (Ctrl+P) / Preview (Ctrl+Shift+P) — both open the export-to-PDF wizard.
+   */
+  useEffect(() => {
+    const unsub = accelerator.onPrint(() => {
+      if (!hasOpenProject(store)) return
+      if (!canExportPdf(project.data.pous)) return
+      openModal('export-pdf', null)
+    })
+    return unsub
+  }, [store, accelerator, project.data.pous, openModal])
+
+  /**
+   * Page Setup (Ctrl+Alt+P)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onPageSetup(() => {
+      if (!hasOpenProject(store)) return
+      openModal('page-setup', null)
+    })
+    return unsub
+  }, [store, accelerator, openModal])
+
+  /**
+   * Find in project (Cmd+Shift+F)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onFindInProject(() => {
+      if (!hasOpenProject(store)) return
+      setModalOpen('findInProject', true)
+    })
+    return unsub
+  }, [store, accelerator, setModalOpen])
+
+  /**
+   * Switch perspective (F12)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onSwitchPerspective(() => {
+      if (!hasOpenProject(store)) return
+      toggleCollapse()
+    })
+    return unsub
+  }, [store, accelerator, toggleCollapse])
+
+  /**
+   * Developer I/O image diagnostics, from the native menu on a framed window.
+   */
+  useEffect(() => accelerator.onOpenDiagnostics?.(() => openDiagnosticsTab(store)), [accelerator, store])
+
+  /**
+   * Undo / Redo
+   */
+  // An invalid graphical body blocks history changes outright, so say so rather
+  // than letting the shortcut look broken (DOPE-495).
+  const notifyStaleBody = useCallback((pouName: string) => {
+    toast({
+      title: 'History unavailable',
+      description: `The graphical body of "${pouName}" is invalid, so its history was not changed.`,
+      variant: 'fail',
+    })
+  }, [])
+
+  useEffect(() => {
+    const unsub = accelerator.onUndo(() => {
+      if (!hasOpenProject(store) || !meta?.name) return
+      if (!undo(meta.name)) notifyStaleBody(meta.name)
+    })
+    return unsub
+  }, [store, meta.name, isMonacoFocused, accelerator, undo, notifyStaleBody])
+
+  useEffect(() => {
+    const unsub = accelerator.onRedo(() => {
+      if (!hasOpenProject(store) || !meta?.name) return
+      if (!redo(meta.name)) notifyStaleBody(meta.name)
+    })
+    return unsub
+  }, [store, meta.name, isMonacoFocused, accelerator, redo, notifyStaleBody])
+
+  /**
+   * Quit app (Ctrl+Q on Windows/Linux)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onQuitApp(() => {
+      quitAppRequest(editingState === 'unsaved', openModal)
+    })
+    return unsub
+  }, [editingState, accelerator, openModal])
+
+  /**
+   * Refresh (Cmd+R / Ctrl+R from the native menu)
+   */
+  useEffect(() => {
+    const unsub = accelerator.onRefresh(() => {
+      requestAppRefresh(store.getState().workspace.editingState, openModal, windowPort)
+    })
+    return unsub
+  }, [accelerator, openModal, windowPort, store])
+
+  /**
+   * Theme changes (user toggle, OS preference, or cross-app cookie sync).
+   * The theme adapter owns the DOM class and persistence; here we only
+   * mirror the Monaco light/dark flag (set explicitly from the theme —
+   * toggling drifts when cycling through the 90's skin, and the retro
+   * theme uses light Monaco).
+   */
+  useEffect(() => {
+    const unsub = themePort.onThemeChanged((newTheme) => {
+      setSystemConfigs({ shouldUseDarkMode: newTheme === 'dark' })
+    })
+    return unsub
+  }, [themePort, setSystemConfigs])
+
+  /**
+   * Window lifecycle events (editor-only, gated by capabilities)
+   */
+  useEffect(() => {
+    if (!capabilities.isNativeApplication) return
+
+    const unsub = windowPort.enableAutoCloseHandshake?.()
+    return unsub
+  }, [capabilities.isNativeApplication, windowPort])
+
+  useEffect(() => {
+    if (!capabilities.isNativeApplication) return
+
+    const unsub = windowPort.onCloseRequested(() => {
+      setCloseWindow(true)
+    })
+    return unsub
+  }, [capabilities.isNativeApplication, windowPort, setCloseWindow])
+
+  useEffect(() => {
+    if (!capabilities.isNativeApplication) return
+
+    const unsub = windowPort.onQuitRequested?.(() => {
+      quitAppRequest(store.getState().workspace.editingState === 'unsaved', openModal)
+    })
+    return unsub
+  }, [capabilities.isNativeApplication, windowPort, openModal, store])
+
+  useEffect(() => {
+    if (!capabilities.isNativeApplication) return
+
+    const unsub = windowPort.onMaximizedChanged?.(() => {
+      toggleMaximizedWindow()
+    })
+    return unsub
+  }, [capabilities.isNativeApplication, windowPort, toggleMaximizedWindow])
+
+  /**
+   * beforeunload event (editor-only)
+   */
+  useEffect(() => {
+    if (!capabilities.isNativeApplication) return
+
+    const handler = (e: BeforeUnloadEvent) => {
+      if (capabilities.isDevMode) return
+
+      // Any unload that is not a window close (a stray navigation, an unconfirmed reload) is blocked.
+      if (!close.window) {
+        e.returnValue = false
+        return
+      }
+
+      if (systemConfigs.OS === 'darwin' || close.app) return
+
+      quitAppRequest(editingState === 'unsaved', openModal)
+      e.returnValue = false
+    }
+
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [
+    capabilities.isNativeApplication,
+    close.window,
+    close.app,
+    capabilities.isDevMode,
+    systemConfigs.OS,
+    editingState,
+    openModal,
+    windowPort,
+  ])
+
+  /**
+   * beforeunload warning on web (tab close / refresh / hard navigation away).
+   *
+   * Browsers only permit the generic native "Leave site?" prompt here — no
+   * custom dialog and no async save — so this is the best-effort backstop for
+   * raw browser exits. In-app navigation (the sidebar back button) still gets
+   * the real save-changes dialog via closeProject(). Desktop is handled by the
+   * Electron close lifecycle in the effect above; this one is web-only.
+   */
+  useEffect(() => {
+    if (capabilities.isNativeApplication) return
+
+    const handler = (e: BeforeUnloadEvent) => {
+      // Read the live store value, not the React closure: an intentional in-app
+      // exit (save-changes modal → clearAndClose sets editingState) updates the
+      // Zustand store synchronously right before navigating, so reading it here
+      // avoids double-prompting (custom dialog + generic prompt) on that path.
+      if (store.getState().workspace.editingState !== 'unsaved') return
+      // Setting returnValue (and calling preventDefault) is what triggers the
+      // browser's generic unsaved-changes prompt; the string is ignored by
+      // modern browsers.
+      e.preventDefault()
+      e.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [capabilities.isNativeApplication, store])
+
+  return <></>
+}
+
+export { AcceleratorHandler }
