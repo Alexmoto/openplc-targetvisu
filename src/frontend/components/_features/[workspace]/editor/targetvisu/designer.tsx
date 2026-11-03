@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import { GraphicProperties } from './graphic-properties'
+import { selectGraphicData } from '../../../../../../middleware/shared/targetvisu/graphics'
 
 import type {
   TargetVisuDocument,
@@ -103,11 +104,15 @@ function RenderElement({
   values: Record<string, VisuValue>
 }) {
   if (e.kind === 'graphic') {
+    const graphic = e.graphic
+    const data = graphic
+      ? selectGraphicData(graphic, preview ? valueAt(values, e.bindings.value) : undefined, preview && !!e.bindings.value)
+      : ''
     return (
       <svg x={e.x} y={e.y} width={e.width} height={e.height} overflow='hidden'>
-        {e.graphic?.data ? (
+        {data ? (
           <image
-            href={e.graphic.data}
+            href={data}
             width={e.width}
             height={e.height}
             preserveAspectRatio={
@@ -968,7 +973,9 @@ export function TargetVisuDesigner({
                     <GraphicProperties
                       key={current.id}
                       element={current}
+                      symbols={symbols}
                       onChange={(graphic) => patchElement({ graphic })}
+                      onBindingChange={(value) => patchElement({ bindings: { ...current.bindings, value } })}
                     />
                   )}
                   {current.kind === 'line' && (
