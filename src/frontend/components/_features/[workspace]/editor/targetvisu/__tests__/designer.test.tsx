@@ -143,3 +143,16 @@ it('creates a graphic view with image import and scaling controls', () => {
   fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
   expect(doc().screens[0].elements[0].graphic?.fit).toBe('contain')
 })
+
+it('edits Number border radius and binds three PLC colors', () => {
+  const s = newScreen('screen', 'Main')
+  const element = newElement('number', 'display')
+  s.elements = [element]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [s], startScreen: s.id }} />)
+  fireEvent.change(screen.getByLabelText('Border radius'), { target: { value: '14' } })
+  fireEvent.blur(screen.getByLabelText('Border radius'))
+  expect(doc().screens[0].elements[0].borderRadius).toBe(14)
+  expect(screen.getByLabelText('Background color variable')).toBeTruthy()
+  expect(screen.getByLabelText('Border color variable')).toBeTruthy()
+  expect(screen.getByLabelText('Text color variable')).toBeTruthy()
+})
