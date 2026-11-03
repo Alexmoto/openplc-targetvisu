@@ -107,3 +107,30 @@ it('uses configured instance names, constant list permissions and stable scalar 
     { path: 'Setpoint', type: 'REAL', writable: true },
   ])
 })
+
+it('supports legacy Number documents and validates optional PLC color bindings', () => {
+  const doc = document()
+  const element = newElement('number', 'n')
+  doc.screens[0].elements = [element]
+  const legacy = JSON.parse(JSON.stringify(doc))
+  delete legacy.screens[0].elements[0].borderRadius
+  delete legacy.screens[0].elements[0].bindings.fill
+  delete legacy.screens[0].elements[0].bindings.stroke
+  delete legacy.screens[0].elements[0].bindings.textColor
+  expect(TargetVisuSchema.parse(legacy).screens[0].elements[0]).toMatchObject({
+    borderRadius: 0,
+    bindings: { fill: '', stroke: '', textColor: '' },
+  })
+  element.borderRadius = 12
+  element.bindings.fill = 'main.Color'
+  const withColors = [...symbols, { path: 'main.Color', type: 'DWORD', writable: false }]
+  expect(validateBindings(doc, withColors)).toEqual([])
+  expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, withColors)))).toEqual(doc)
+  expect(validateBindings(doc, symbols).join()).toContain('unknown variable')
+  expect(validateBindings(doc, [...symbols, { path: 'main.Color', type: 'REAL', writable: false }]).join()).toContain('integer PLC variable')
+  element.kind = 'button'
+  expect(validateBindings(doc, withColors).join()).toContain('requires number')
+  element.kind = 'number'
+  element.borderRadius = 101
+  expect(TargetVisuSchema.safeParse(doc).success).toBe(false)
+})

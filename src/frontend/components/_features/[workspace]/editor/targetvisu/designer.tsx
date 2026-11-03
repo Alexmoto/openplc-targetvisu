@@ -13,6 +13,7 @@ import type {
 import {
   exportVisualization,
   fitElement,
+  isColorType,
   isNumericType,
   newElement,
   newScreen,
@@ -36,6 +37,12 @@ const control =
 const button = `${control} hover:border-blue-500`
 const valueAt = (values: Record<string, VisuValue>, path: string) =>
   values[Object.keys(values).find((p) => p.toLowerCase() === path.toLowerCase()) ?? path]
+const colorAt = (values: Record<string, VisuValue>, path: string, fallback: string): string => {
+  if (!path) return fallback
+  const value = valueAt(values, path)
+  if (typeof value !== 'number' || !Number.isSafeInteger(value)) return fallback
+  return `#${(value & 0xffffff).toString(16).padStart(6, '0')}`
+}
 
 function NumericField({
   label,
@@ -119,7 +126,10 @@ function RenderElement({
     )
   }
   const value = valueAt(values, e.bindings.value)
-  const fill = e.kind === 'indicator' && preview && value === true ? e.activeFill : e.fill
+  const fill = e.kind === 'number' && preview ? colorAt(values, e.bindings.fill, e.fill) :
+    e.kind === 'indicator' && preview && value === true ? e.activeFill : e.fill
+  const stroke = e.kind === 'number' && preview ? colorAt(values, e.bindings.stroke, e.stroke) : e.stroke
+  const textColor = e.kind === 'number' && preview ? colorAt(values, e.bindings.textColor, e.textColor) : e.textColor
   const label =
     e.kind === 'number'
       ? preview
@@ -171,9 +181,9 @@ function RenderElement({
           y={e.y}
           width={e.width}
           height={e.height}
-          rx={e.kind === 'button' ? 6 : 0}
+          rx={e.kind === 'button' ? 6 : e.kind === 'number' ? e.borderRadius ?? 0 : 0}
           fill={fill}
-          stroke={e.stroke}
+          stroke={stroke}
           strokeWidth={e.strokeWidth}
         />
       ) : null}
@@ -184,7 +194,7 @@ function RenderElement({
             y='50%'
             textAnchor='middle'
             dominantBaseline='central'
-            fill={e.textColor}
+            fill={textColor}
             fontFamily='sans-serif'
             fontSize={e.fontSize}
             style={{ userSelect: 'none', pointerEvents: 'none' }}
@@ -403,6 +413,7 @@ export function TargetVisuDesigner({
     boolOnly = false,
     numericOnly = false,
     writable = false,
+    colorOnly = false,
   ) => (
     <label className='flex flex-col gap-1'>
       {label}
@@ -412,7 +423,8 @@ export function TargetVisuDesigner({
         {symbols
           .filter(
             (s) =>
-              (!boolOnly || s.type === 'BOOL') && (!numericOnly || isNumericType(s.type)) && (!writable || s.writable),
+              (!boolOnly || s.type === 'BOOL') && (!numericOnly || isNumericType(s.type)) &&
+              (!colorOnly || isColorType(s.type)) && (!writable || s.writable),
           )
           .map((s) => (
             <option key={s.path} value={s.path}>
@@ -981,10 +993,13 @@ export function TargetVisuDesigner({
                   {current.kind !== 'graphic' && (
                     <>
                       {numeric('Font size', current.fontSize, (n) => patchElement({ fontSize: n }), 6, 200)}
-                      {numeric('Stroke width', current.strokeWidth, (n) => patchElement({ strokeWidth: n }), 0, 20)}
-                      {(['fill', 'activeFill', 'stroke', 'textColor'] as const).map((key) => (
+                      {numeric(current.kind === 'number' ? 'Border width' : 'Stroke width', current.strokeWidth, (n) => patchElement({ strokeWidth: n }), 0, 20)}
+                      {current.kind === 'number' && numeric('Border radius', current.borderRadius ?? 0, (n) => patchElement({ borderRadius: n }), 0, 100)}
+                      {(['fill', 'activeFill', 'stroke', 'textColor'] as const).filter((key) => current.kind !== 'number' || key !== 'activeFill').map((key) => (
                         <label key={key} className='flex justify-between'>
-                          {key}
+                          {current.kind === 'number'
+                            ? { fill: 'Background Color', stroke: 'Border Color', textColor: 'Text Color', activeFill: 'Active fill' }[key]
+                            : key}
                           <input
                             type='color'
                             aria-label={key}
@@ -993,6 +1008,16 @@ export function TargetVisuDesigner({
                           />
                         </label>
                       ))}
+                      {current.kind === 'number' && (['fill', 'stroke', 'textColor'] as const).map((key) =>
+                        <div key={`${key}-binding`}>
+                          {bindSelect(
+                            { fill: 'Background color variable', stroke: 'Border color variable', textColor: 'Text color variable' }[key],
+                            current.bindings[key] ?? '',
+                            (value) => patchElement({ bindings: { ...current.bindings, [key]: value } }),
+                            false, false, false, true,
+                          )}
+                        </div>
+                      )}
                       {bindSelect(
                         'Value variable',
                         current.bindings.value,
