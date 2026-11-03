@@ -26,3 +26,21 @@ export function graphicDimensions(data: string): { width: number; height: number
     return
   }
 }
+
+/** Pick an embedded image by an exact PLC value (BOOL is 0/1).
+ * Unmatched or missing PLC values fall back to the static image.
+ * Without an active binding the first state is shown when no static image exists.
+ */
+export function selectGraphicData(
+  graphic: { data: string; variants?: readonly { value: number; data: string }[] },
+  selector: boolean | number | string | undefined,
+  hasBinding: boolean,
+): string {
+  if (!hasBinding) return graphic.data || graphic.variants?.[0]?.data || ''
+  const value = typeof selector === 'boolean' ? (selector ? 1 : 0) : selector
+  if (typeof value === 'number' && Number.isSafeInteger(value)) {
+    const match = graphic.variants?.find((variant) => variant.value === value)
+    if (match) return match.data
+  }
+  return graphic.data
+}
