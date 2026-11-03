@@ -58,9 +58,9 @@ it('requires distinct Graphic View image states and a compatible PLC selector va
   expect(validateBindings(doc, symbols)).toEqual([])
   expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, symbols)))).toEqual(doc)
   expect(validateBindings(doc, [{ ...symbols[0], type: 'REAL' }]).join()).toContain('image selector')
-  graphic.graphic.variants![1].value = 0
+  graphic.graphic!.variants![1].value = 0
   expect(TargetVisuSchema.safeParse(doc).success).toBe(false)
-  graphic.graphic.variants![1].value = 1
-  graphic.graphic.variants![1].data = 'https://example.com/a.png'
+  graphic.graphic!.variants![1].value = 1
+  graphic.graphic!.variants![1].data = 'https://example.com/a.png'
   expect(TargetVisuSchema.safeParse(doc).success).toBe(false)
 })
