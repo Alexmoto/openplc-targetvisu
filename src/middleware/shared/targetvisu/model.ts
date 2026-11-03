@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { z } from 'zod'
+import { graphicDimensions, MAX_GRAPHIC_BYTES, PNG_PREFIX } from './graphics'
 
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const symbol = z.string().max(256)
@@ -7,7 +8,17 @@ export const ElementSchema = z
   .object({
     id: z.string().min(1).max(128),
     name: z.string().min(1).max(80),
-    kind: z.enum(['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number']),
+    kind: z.enum(['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number', 'graphic']),
+    graphic: z
+      .object({
+        data: z
+          .string()
+          .max(PNG_PREFIX.length + 4 * Math.ceil(MAX_GRAPHIC_BYTES / 3))
+          .refine((data) => data === '' || !!graphicDimensions(data), 'Invalid embedded PNG'),
+        fit: z.enum(['contain', 'cover', 'stretch']),
+      })
+      .strict()
+      .optional(),
     lineDirection: z.enum(['horizontal', 'vertical', 'diagonal-down', 'diagonal-up']).default('horizontal'),
     x: z.number().finite().min(0).max(8192),
     y: z.number().finite().min(0).max(8192),
@@ -112,11 +123,12 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     id,
     name: `${kind}_${id.slice(0, 6)}`,
     kind,
+    ...(kind === 'graphic' ? { graphic: { data: '', fit: 'contain' as const } } : {}),
     lineDirection: 'horizontal',
     x: 20,
     y: 20,
     width: kind === 'indicator' ? 48 : 140,
-    height: kind === 'line' ? 8 : 48,
+    height: kind === 'line' ? 8 : kind === 'graphic' ? 100 : 48,
     fill: kind === 'button' ? '#2563eb' : '#dbe2ea',
     activeFill: '#22c55e',
     stroke: '#475569',
@@ -148,6 +160,7 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
   for (const screen of doc.screens)
     for (const element of screen.elements) {
       const label = `${screen.name}/${element.name}`
+      if (element.kind === 'graphic' && !element.graphic?.data) errors.push(`${label}: image is missing`)
       for (const [property, path] of Object.entries(element.bindings)) {
         if (!path) continue
         const found = byPath.get(path.toLowerCase())
@@ -161,6 +174,7 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
           errors.push(`${label}: number requires numeric value`)
       }
       const action = element.action
+      if (element.kind === 'graphic' && action.kind !== 'none') errors.push(`${label}: graphic view is display-only`)
       if (action.kind === 'none') continue
       if (action.kind === 'navigate') {
         if (element.kind !== 'button') errors.push(`${label}: navigate requires a button`)

@@ -131,3 +131,15 @@ it('configures navigation by screen id and previews a button transition without 
   expect(screen.queryByTestId(`element-${button.id}`)).toBeNull()
   expect(JSON.stringify(doc())).toBe(original)
 })
+
+it('creates a graphic view with image import and scaling controls', () => {
+  render(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Create screen' }))
+  fireEvent.click(screen.getByRole('button', { name: '+ Graphic View' }))
+  expect(screen.getByLabelText('Graphic file')).toBeTruthy()
+  expect(doc().screens[0].elements[0].kind).toBe('graphic')
+  fireEvent.change(screen.getByLabelText('Graphic fit'), { target: { value: 'cover' } })
+  expect(doc().screens[0].elements[0].graphic?.fit).toBe('cover')
+  fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+  expect(doc().screens[0].elements[0].graphic?.fit).toBe('contain')
+})

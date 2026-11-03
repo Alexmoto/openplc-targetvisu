@@ -78,3 +78,17 @@ test('navigation exports a screen id without granting PLC write permission', asy
   project.targetVisu!.screens.pop()
   await expect(generateTargetVisuBundle(project, JSON.stringify(map), md5, hash)).rejects.toThrow('screen is missing')
 })
+
+test('embedded graphic survives upload with a matching manifest and no PLC writes', async () => {
+  const { project, map } = fixture()
+  const image = newElement('graphic', 'image')
+  image.graphic = {
+    data: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGP4z8DwHwgZAA/5Av4tR4H0AAAAAElFTkSuQmCC',
+    fit: 'contain',
+  }
+  project.targetVisu!.screens[0].elements = [image]
+  const result = (await generateTargetVisuBundle(project, JSON.stringify(map), md5, hash))!
+  expect(JSON.parse(result.document).screens[0].elements[0].graphic).toEqual(image.graphic)
+  expect(JSON.parse(result.deployment).writableSymbols).toEqual([])
+  expect(JSON.parse(result.deployment).documentMd5).toBe(await hash(result.document))
+})

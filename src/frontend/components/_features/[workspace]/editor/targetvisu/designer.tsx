@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
+import { GraphicProperties } from './graphic-properties'
 
 import type {
   TargetVisuDocument,
@@ -19,7 +20,16 @@ import {
   validateBindings,
 } from '../../../../../../middleware/shared/targetvisu/model'
 
-const KINDS: VisuElement['kind'][] = ['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number']
+const KINDS: VisuElement['kind'][] = [
+  'rectangle',
+  'ellipse',
+  'line',
+  'text',
+  'indicator',
+  'button',
+  'number',
+  'graphic',
+]
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const control =
   'rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 disabled:opacity-40 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100'
@@ -85,6 +95,29 @@ function RenderElement({
   preview: boolean
   values: Record<string, VisuValue>
 }) {
+  if (e.kind === 'graphic') {
+    return (
+      <svg x={e.x} y={e.y} width={e.width} height={e.height} overflow='hidden'>
+        {e.graphic?.data ? (
+          <image
+            href={e.graphic.data}
+            width={e.width}
+            height={e.height}
+            preserveAspectRatio={
+              e.graphic.fit === 'stretch' ? 'none' : e.graphic.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'
+            }
+          />
+        ) : (
+          <>
+            <rect width={e.width} height={e.height} fill='#e2e8f0' stroke='#64748b' />
+            <text x='50%' y='50%' textAnchor='middle' dominantBaseline='central' fontSize='12'>
+              Graphic View
+            </text>
+          </>
+        )}
+      </svg>
+    )
+  }
   const value = valueAt(values, e.bindings.value)
   const fill = e.kind === 'indicator' && preview && value === true ? e.activeFill : e.fill
   const label =
@@ -472,7 +505,7 @@ export function TargetVisuDesigner({
     >
       <div className='flex flex-wrap items-center gap-2'>
         <strong className='mr-3 text-sm'>
-          TargetVisu <span className='font-normal text-slate-500'>Native X11 · Editor v0.4</span>
+          TargetVisu <span className='font-normal text-slate-500'>Native X11 · Editor v0.5</span>
         </strong>
         <button
           className={button}
@@ -545,7 +578,7 @@ export function TargetVisuDesigner({
                 className={`${button} text-left capitalize`}
                 onClick={() => addElement(kind)}
               >
-                + {kind}
+                + {kind === 'graphic' ? 'Graphic View' : kind}
               </button>
             ))}
           </fieldset>
@@ -908,15 +941,24 @@ export function TargetVisuDesigner({
                       key === 'x' || key === 'width' ? screen.width : screen.height,
                     ),
                   )}
-                  <label className='flex flex-col gap-1'>
-                    Text
-                    <input
-                      className={control}
-                      aria-label='Text'
-                      value={current.text}
-                      onChange={(e) => patchElement({ text: e.target.value })}
+                  {current.kind !== 'graphic' && (
+                    <label className='flex flex-col gap-1'>
+                      Text
+                      <input
+                        className={control}
+                        aria-label='Text'
+                        value={current.text}
+                        onChange={(e) => patchElement({ text: e.target.value })}
+                      />
+                    </label>
+                  )}
+                  {current.kind === 'graphic' && (
+                    <GraphicProperties
+                      key={current.id}
+                      element={current}
+                      onChange={(graphic) => patchElement({ graphic })}
                     />
-                  </label>
+                  )}
                   {current.kind === 'line' && (
                     <label className='flex flex-col gap-1'>
                       Line direction
@@ -936,25 +978,29 @@ export function TargetVisuDesigner({
                       </select>
                     </label>
                   )}
-                  {numeric('Font size', current.fontSize, (n) => patchElement({ fontSize: n }), 6, 200)}
-                  {numeric('Stroke width', current.strokeWidth, (n) => patchElement({ strokeWidth: n }), 0, 20)}
-                  {(['fill', 'activeFill', 'stroke', 'textColor'] as const).map((key) => (
-                    <label key={key} className='flex justify-between'>
-                      {key}
-                      <input
-                        type='color'
-                        aria-label={key}
-                        value={current[key]}
-                        onChange={(e) => patchElement({ [key]: e.target.value })}
-                      />
-                    </label>
-                  ))}
-                  {bindSelect(
-                    'Value variable',
-                    current.bindings.value,
-                    (value) => patchElement({ bindings: { ...current.bindings, value } }),
-                    current.kind === 'indicator',
-                    current.kind === 'number',
+                  {current.kind !== 'graphic' && (
+                    <>
+                      {numeric('Font size', current.fontSize, (n) => patchElement({ fontSize: n }), 6, 200)}
+                      {numeric('Stroke width', current.strokeWidth, (n) => patchElement({ strokeWidth: n }), 0, 20)}
+                      {(['fill', 'activeFill', 'stroke', 'textColor'] as const).map((key) => (
+                        <label key={key} className='flex justify-between'>
+                          {key}
+                          <input
+                            type='color'
+                            aria-label={key}
+                            value={current[key]}
+                            onChange={(e) => patchElement({ [key]: e.target.value })}
+                          />
+                        </label>
+                      ))}
+                      {bindSelect(
+                        'Value variable',
+                        current.bindings.value,
+                        (value) => patchElement({ bindings: { ...current.bindings, value } }),
+                        current.kind === 'indicator',
+                        current.kind === 'number',
+                      )}
+                    </>
                   )}
                   {bindSelect(
                     'Visible when TRUE',
@@ -962,12 +1008,13 @@ export function TargetVisuDesigner({
                     (visible) => patchElement({ bindings: { ...current.bindings, visible } }),
                     true,
                   )}
-                  {bindSelect(
-                    'Enabled when TRUE',
-                    current.bindings.enabled,
-                    (enabled) => patchElement({ bindings: { ...current.bindings, enabled } }),
-                    true,
-                  )}
+                  {current.kind !== 'graphic' &&
+                    bindSelect(
+                      'Enabled when TRUE',
+                      current.bindings.enabled,
+                      (enabled) => patchElement({ bindings: { ...current.bindings, enabled } }),
+                      true,
+                    )}
                   {(current.kind === 'button' || current.kind === 'number') && (
                     <>
                       <label className='flex flex-col gap-1'>
