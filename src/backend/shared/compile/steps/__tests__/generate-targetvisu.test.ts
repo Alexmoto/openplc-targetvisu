@@ -125,6 +125,8 @@ test('Input + Output Number exports a write permission only to its displayed num
   project.configuration.resource.globalVariables.push({
     name: 'Setpoint',
     type: { definition: 'base-type', value: 'REAL' },
+    documentation: '',
+    location: '',
   })
   map.leaves.push({ path: 'Setpoint', type: 'REAL', size: 4, arrayIdx: 0, elemIdx: 1 })
   const number = newElement('number', 'setpoint')
