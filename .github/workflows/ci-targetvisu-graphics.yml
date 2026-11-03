@@ -1,7 +1,8 @@
-name: TargetVisu Graphic View states
+name: TargetVisu graphics and backgrounds
 on:
   pull_request:
     branches:
+      - feature/graphic-view-image-states
       - feature/number-dynamic-colors
       - main
     paths:
