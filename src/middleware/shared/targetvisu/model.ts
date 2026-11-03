@@ -42,6 +42,7 @@ export const ElementSchema = z
     fontSize: z.number().int().min(6).max(200),
     text: z.string().max(1024),
     decimals: z.number().int().min(0).max(6),
+    numberMode: z.enum(['output', 'input-output']).optional(),
     minimum: z.number().finite(),
     maximum: z.number().finite(),
     bindings: z.object({
@@ -165,6 +166,7 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     fontSize: 18,
     text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : '',
     decimals: 1,
+    ...(kind === 'number' ? { numberMode: 'output' as const } : {}),
     minimum: 0,
     maximum: 100,
     bindings: { value: '', visible: '', enabled: '', fill: '', stroke: '', textColor: '' },
@@ -213,6 +215,15 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
           errors.push(`${label}: image selector requires BOOL or 32-bit integer PLC variable`)
       }
       const action = element.action
+      if (element.numberMode && element.kind !== 'number')
+        errors.push(`${label}: Number mode is supported only for Number`)
+      if (element.kind === 'number' && element.numberMode === 'input-output') {
+        if (!element.bindings.value) errors.push(`${label}: Input + Output requires a value variable`)
+        if (action.kind !== 'write' || !action.target || action.target.toLowerCase() !== element.bindings.value.toLowerCase())
+          errors.push(`${label}: Input + Output must write to the displayed value variable`)
+      }
+      if (element.kind === 'number' && element.numberMode === 'output' && action.kind === 'write')
+        errors.push(`${label}: Output mode cannot write to PLC`)
       if (element.kind === 'graphic' && action.kind !== 'none') errors.push(`${label}: graphic view is display-only`)
       if (action.kind === 'none') continue
       if (action.kind === 'navigate') {

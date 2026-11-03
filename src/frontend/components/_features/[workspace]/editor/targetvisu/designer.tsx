@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import { GraphicProperties } from './graphic-properties'
+import { NumberKeypad } from './number-keypad'
 import { ScreenBackgroundProperties } from './screen-background-properties'
 import { selectGraphicData } from '../../../../../../middleware/shared/targetvisu/graphics'
 
@@ -228,6 +229,7 @@ export function TargetVisuDesigner({
   const [selection, setSelection] = useState<string[]>([])
   const [preview, setPreview] = useState(false)
   const [values, setValues] = useState<Record<string, VisuValue>>({})
+  const [numberInput, setNumberInput] = useState<string | null>(null)
   const [zoom, setZoom] = useState(1)
   const [snap, setSnap] = useState(true)
   const [error, setError] = useState('')
@@ -245,6 +247,8 @@ export function TargetVisuDesigner({
   } | null>(null)
   const screen = doc.screens.find((s) => s.id === screenId) ?? doc.screens[0]
   const current = screen?.elements.find((e) => e.id === selection[0])
+  const keypadElement = preview ? screen?.elements.find((e) => e.id === numberInput) : undefined
+  const keypadSymbol = keypadElement ? symbols.find((s) => s.path.toLowerCase() === keypadElement.action.target.toLowerCase()) : undefined
   const errors = useMemo(() => validateBindings(doc, symbols), [doc, symbols])
   const blocked = readOnly || preview
   const momentaryTargets = JSON.stringify(
@@ -264,7 +268,8 @@ export function TargetVisuDesigner({
   }, [preview, screen?.id, momentaryTargets])
   useEffect(() => {
     setSelection([])
-  }, [screen?.id])
+    setNumberInput(null)
+  }, [screen?.id, preview])
   useEffect(() => {
     setValues((previous) =>
       Object.fromEntries(
@@ -807,6 +812,15 @@ export function TargetVisuDesigner({
                         e.stopPropagation()
                         svg.current?.focus()
                         if (preview) {
+                          if (element.kind === 'number' && element.action.kind === 'write') {
+                            const target = symbols.find(
+                              (s) => s.path.toLowerCase() === element.action.target.toLowerCase(),
+                            )
+                            if (target?.writable && !errors.length &&
+                                (!element.bindings.enabled || valueAt(values, element.bindings.enabled) === true))
+                              setNumberInput(element.id)
+                            return
+                          }
                           e.currentTarget.setPointerCapture?.(e.pointerId)
                           previewAction(element, true)
                           return
@@ -927,34 +941,6 @@ export function TargetVisuDesigner({
                   )}
                 </label>
               ))}
-              {screen?.elements
-                .filter((e) => e.kind === 'number' && e.action.kind === 'write')
-                .map((e) => (
-                  <label key={e.id}>
-                    Input: {e.name}
-                    <input
-                      type='number'
-                      aria-label={`Input ${e.name}`}
-                      className={control}
-                      min={e.minimum}
-                      max={e.maximum}
-                      onChange={(event) => {
-                        const n = Number(event.target.value),
-                          target = symbols.find((s) => s.path === e.action.target)
-                        if (
-                          target?.writable &&
-                          !errors.length &&
-                          Number.isFinite(n) &&
-                          n >= e.minimum &&
-                          n <= e.maximum &&
-                          (!e.bindings.enabled || valueAt(values, e.bindings.enabled) === true) &&
-                          (!e.bindings.visible || valueAt(values, e.bindings.visible) === true)
-                        )
-                          setValues({ ...values, [target.path]: n })
-                      }}
-                    />
-                  </label>
-                ))}
             </>
           ) : (
             <fieldset disabled={readOnly} className='flex flex-col gap-3'>
@@ -1071,9 +1057,19 @@ export function TargetVisuDesigner({
                       {bindSelect(
                         'Value variable',
                         current.bindings.value,
-                        (value) => patchElement({ bindings: { ...current.bindings, value } }),
+                        (value) => patchElement({
+                          bindings: { ...current.bindings, value },
+                          ...(current.kind === 'number' &&
+                          (current.numberMode === 'input-output' ||
+                            (!current.numberMode && current.action.kind === 'write'))
+                            ? { action: { ...current.action, kind: 'write' as const, target: value } }
+                            : {}),
+                        }),
                         current.kind === 'indicator',
                         current.kind === 'number',
+                        current.kind === 'number' &&
+                          (current.numberMode === 'input-output' ||
+                            (!current.numberMode && current.action.kind === 'write')),
                       )}
                     </>
                   )}
@@ -1090,7 +1086,31 @@ export function TargetVisuDesigner({
                       (enabled) => patchElement({ bindings: { ...current.bindings, enabled } }),
                       true,
                     )}
-                  {(current.kind === 'button' || current.kind === 'number') && (
+                  {current.kind === 'number' && (
+                    <label className='flex flex-col gap-1'>
+                      Number mode
+                      <select
+                        className={control}
+                        aria-label='Number mode'
+                        value={current.numberMode ?? (current.action.kind === 'write' ? 'input-output' : 'output')}
+                        onChange={(event) => {
+                          const mode = event.target.value as 'output' | 'input-output'
+                          patchElement({
+                            numberMode: mode,
+                            action: {
+                              ...current.action,
+                              kind: mode === 'input-output' ? 'write' : 'none',
+                              target: mode === 'input-output' ? current.bindings.value : '',
+                            },
+                          })
+                        }}
+                      >
+                        <option value='output'>Output (display only)</option>
+                        <option value='input-output'>Input + Output (touch keypad)</option>
+                      </select>
+                    </label>
+                  )}
+                  {current.kind === 'button' && (
                     <>
                       <label className='flex flex-col gap-1'>
                         Action
@@ -1113,10 +1133,7 @@ export function TargetVisuDesigner({
                             })
                           }
                         >
-                          {(current.kind === 'number'
-                            ? ['none', 'write']
-                            : ['none', 'set', 'toggle', 'momentary', 'navigate']
-                          ).map((kind) => (
+                          {['none', 'set', 'toggle', 'momentary', 'navigate'].map((kind) => (
                             <option key={kind} value={kind}>
                               {kind === 'navigate' ? 'Перейти на экран' : kind}
                             </option>
@@ -1300,6 +1317,24 @@ export function TargetVisuDesigner({
           )}
         </aside>
       </div>
+      {keypadElement && keypadSymbol && (
+        <NumberKeypad
+          key={keypadElement.id}
+          name={keypadElement.name}
+          target={keypadSymbol.path}
+          datatype={keypadSymbol.type}
+          initial={typeof valueAt(values, keypadSymbol.path) === 'number'
+            ? Number(valueAt(values, keypadSymbol.path)) : 0}
+          decimals={keypadElement.decimals}
+          minimum={keypadElement.minimum}
+          maximum={keypadElement.maximum}
+          onCancel={() => setNumberInput(null)}
+          onConfirm={(value) => {
+            setValues((v) => ({ ...v, [keypadSymbol.path]: value }))
+            setNumberInput(null)
+          }}
+        />
+      )}
     </div>
   )
 }

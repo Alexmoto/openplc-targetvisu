@@ -2,6 +2,7 @@ name: TargetVisu graphics and backgrounds
 on:
   pull_request:
     branches:
+      - feature/transparent-button-number
       - feature/screen-background-image
       - feature/graphic-view-image-states
       - feature/number-dynamic-colors
@@ -28,6 +29,7 @@ jobs:
         run: |
           npx jest --runInBand --no-coverage --runTestsByPath \
             'src/frontend/components/_features/[workspace]/editor/targetvisu/__tests__/designer.test.tsx' \
+            'src/frontend/components/_features/[workspace]/editor/targetvisu/__tests__/number-keypad.test.ts' \
             'src/frontend/components/_features/[workspace]/editor/targetvisu/__tests__/graphic-properties.test.tsx' \
             'src/middleware/shared/targetvisu/__tests__/graphics.test.ts' \
             'src/middleware/shared/targetvisu/__tests__/model.test.ts' \

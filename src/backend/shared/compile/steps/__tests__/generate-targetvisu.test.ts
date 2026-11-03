@@ -119,3 +119,30 @@ test('screen background image survives deployment without creating PLC write tar
   expect(JSON.parse(result.deployment).documentMd5).toBe(await hash(result.document))
   expect(JSON.parse(result.deployment).writableSymbols).toEqual([])
 })
+
+test('Input + Output Number exports a write permission only to its displayed numeric PLC variable', async () => {
+  const { project, map } = fixture()
+  project.configuration.resource.globalVariables.push({
+    name: 'Setpoint',
+    type: { definition: 'base-type', value: 'REAL' },
+    documentation: '',
+    location: '',
+  })
+  map.leaves.push({ path: 'Setpoint', type: 'REAL', size: 4, arrayIdx: 0, elemIdx: 1 })
+  const number = newElement('number', 'setpoint')
+  number.bindings.value = 'Setpoint'
+  number.numberMode = 'input-output'
+  number.action = { kind: 'write', target: 'Setpoint', value: 0 }
+  project.targetVisu!.screens[0].elements = [number]
+  const result = (await generateTargetVisuBundle(project, JSON.stringify(map), md5, hash))!
+  expect(JSON.parse(result.deployment).writableSymbols).toEqual(['Setpoint'])
+  expect(JSON.parse(result.document).screens[0].elements[0]).toMatchObject({
+    numberMode: 'input-output',
+    bindings: { value: 'Setpoint' },
+    action: { kind: 'write', target: 'Setpoint' },
+  })
+  number.action.target = 'Run'
+  await expect(generateTargetVisuBundle(project, JSON.stringify(map), md5, hash)).rejects.toThrow(
+    'displayed value variable',
+  )
+})
