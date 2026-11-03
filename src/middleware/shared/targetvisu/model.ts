@@ -25,7 +25,7 @@ export const ElementSchema = z
     maximum: z.number().finite(),
     bindings: z.object({ value: symbol, visible: symbol, enabled: symbol }),
     action: z.object({
-      kind: z.enum(['none', 'set', 'toggle', 'momentary', 'write']),
+      kind: z.enum(['none', 'set', 'toggle', 'momentary', 'write', 'navigate']),
       target: symbol,
       value: z.union([z.boolean(), z.number().finite(), z.string().max(256)]),
     }),
@@ -162,6 +162,12 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
       }
       const action = element.action
       if (action.kind === 'none') continue
+      if (action.kind === 'navigate') {
+        if (element.kind !== 'button') errors.push(`${label}: navigate requires a button`)
+        if (!doc.screens.some((s) => s.id === action.target))
+          errors.push(`${label}: navigation target screen is missing`)
+        continue
+      }
       const found = byPath.get(action.target.toLowerCase())
       if (!found) {
         errors.push(`${label}: unknown action target ${action.target || '(empty)'}`)

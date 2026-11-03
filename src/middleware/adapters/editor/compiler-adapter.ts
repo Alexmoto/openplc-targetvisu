@@ -45,6 +45,7 @@ import { compileProgramFlow } from './compile-program-flow'
  * error. Adding a field to the project model means adding it here too.
  */
 export interface IpcProjectData {
+  targetVisu?: PLCProjectData['targetVisu']
   dataTypes: PLCProjectData['dataTypes']
   globalVariableLists?: PLCProjectData['globalVariableLists']
   pous: Array<{
@@ -84,6 +85,7 @@ function portPouToIpcPou(pou: PLCPou) {
 // shape). Skipping any step compiles a different program from the same sources.
 function toIpcProjectData(data: PLCProjectData & { originalCppPous?: unknown[] }): IpcProjectData {
   return {
+    targetVisu: data.targetVisu,
     dataTypes: data.dataTypes,
     // Without this the main process never sees a Global Variable List, and every
     // `GVL.Member` in the project fails to compile with "Undeclared variable

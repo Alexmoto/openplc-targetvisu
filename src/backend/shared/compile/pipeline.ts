@@ -32,6 +32,7 @@ import type {
   RuntimeV4Bundle,
 } from '../../../middleware/shared/ports/compiler-platform-port'
 import type { StructuredCompileError } from '../../../middleware/shared/ports/types'
+import { generateTargetVisuBundle } from './steps/generate-targetvisu'
 import { composeRuntimeV4Bundle } from '../../../middleware/shared/utils/library/compose-runtime-v4-bundle'
 import { resolveModbusServerProfile } from '../../../middleware/shared/utils/modbus-server-profile'
 import {
@@ -803,7 +804,16 @@ async function runCompilePipelineInner(
     emit({ stage: 'runtime-v4-bundle', message: 'Composing Runtime v4 upload bundle...', level: 'info' })
     const userTypeNames = (projectData.dataTypes ?? []).map((dataType) => dataType.name)
     const cBlocks = buildCBlocksFromPous(originalCppPous as never, userTypeNames)
+    let targetVisu: Awaited<ReturnType<typeof generateTargetVisuBundle>>
+    try {
+      targetVisu = await generateTargetVisuBundle(processedData, debugMapJson, md5, (content) =>
+        port.computeMd5(content),
+      )
+    } catch (error) {
+      return bailError(emit, 'runtime-v4-bundle', error instanceof Error ? error.message : String(error))
+    }
     const bundle: RuntimeV4Bundle = composeRuntimeV4Bundle({
+      targetVisu,
       programSt,
       md5,
       strucppFiles: strucppFilesMap,

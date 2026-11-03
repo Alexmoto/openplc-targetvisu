@@ -114,3 +114,20 @@ it('resets a momentary preview with a case-insensitive variable path when leavin
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
   expect((screen.getByLabelText('Preview Pump.Run') as HTMLInputElement).checked).toBe(false)
 })
+
+it('configures navigation by screen id and previews a button transition without modifying the document', () => {
+  const main = newScreen('main', 'Main'),
+    details = newScreen('details', 'Details')
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main, details], startScreen: main.id }} />)
+  fireEvent.click(screen.getByRole('button', { name: '+ button' }))
+  fireEvent.change(screen.getByLabelText('Action'), { target: { value: 'navigate' } })
+  expect((screen.getByLabelText('Target screen') as HTMLSelectElement).value).toBe('details')
+  expect(screen.queryByLabelText('Action target')).toBeNull()
+  const button = doc().screens[0].elements[0]
+  expect(button.action).toMatchObject({ kind: 'navigate', target: 'details' })
+  const original = JSON.stringify(doc())
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  fireEvent.pointerDown(screen.getByTestId(`element-${button.id}`))
+  expect(screen.queryByTestId(`element-${button.id}`)).toBeNull()
+  expect(JSON.stringify(doc())).toBe(original)
+})

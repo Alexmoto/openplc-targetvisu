@@ -45,6 +45,7 @@
  */
 
 export interface ComposeRuntimeV4BundleInput {
+  targetVisu?: { document: string; deployment: string }
   /** Concatenated ST program emitted by the ST transpiler. */
   programSt: string
   /** MD5 of `programSt` — written to `defines.h` so the v4 runtime
@@ -150,5 +151,9 @@ export function composeRuntimeV4Bundle(input: ComposeRuntimeV4BundleInput): Reco
   if (input.confs.ethercatBusconfig) files['conf/ethercat_busconfig.json'] = input.confs.ethercatBusconfig
   if (input.confs.ethercatIomapping) files['conf/ethercat_iomapping.json'] = input.confs.ethercatIomapping
 
+  if (input.targetVisu) {
+    files['conf/targetvisu.json'] = input.targetVisu.document
+    files['conf/targetvisu-project.json'] = input.targetVisu.deployment
+  }
   return files
 }

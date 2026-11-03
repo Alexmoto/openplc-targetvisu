@@ -256,6 +256,15 @@ export function TargetVisuDesigner({
   }
   const removeScreen = () => {
     if (!screen || !window.confirm(`Delete ${screen.name} and its elements?`)) return
+    if (
+      doc.screens.some(
+        (s) =>
+          s.id !== screen.id && s.elements.some((e) => e.action.kind === 'navigate' && e.action.target === screen.id),
+      )
+    ) {
+      setError('This screen is used by navigation buttons. Change their target before deleting it.')
+      return
+    }
     const screens = doc.screens.filter((s) => s.id !== screen.id)
     apply({ ...doc, screens, startScreen: doc.startScreen === screen.id ? (screens[0]?.id ?? '') : doc.startScreen })
     setScreenId(screens[0]?.id ?? '')
@@ -343,6 +352,10 @@ export function TargetVisuDesigner({
   const previewAction = (e: VisuElement, pressed: boolean) => {
     if (!preview || e.action.kind === 'none') return
     if (e.bindings.enabled && valueAt(values, e.bindings.enabled) !== true) return
+    if (e.action.kind === 'navigate') {
+      if (pressed && !errors.length) setScreenId(e.action.target)
+      return
+    }
     const action = e.action,
       target = symbols.find((s) => s.path.toLowerCase() === action.target.toLowerCase())
     if (!target?.writable || errors.length) return
@@ -459,7 +472,7 @@ export function TargetVisuDesigner({
     >
       <div className='flex flex-wrap items-center gap-2'>
         <strong className='mr-3 text-sm'>
-          TargetVisu <span className='font-normal text-slate-500'>Native X11 · Editor v0.1</span>
+          TargetVisu <span className='font-normal text-slate-500'>Native X11 · Editor v0.4</span>
         </strong>
         <button
           className={button}
@@ -474,7 +487,7 @@ export function TargetVisuDesigner({
         <span className='text-xs text-slate-500'>
           {preview
             ? 'Preview uses local test values. No PLC connection.'
-            : 'Ctrl+S saves with the project · JSON export for the future native client'}
+            : 'Ctrl+S saves with the project · Upload includes TargetVisu'}
         </span>
         <div className='ml-auto flex gap-2'>
           <button className={button} onClick={exportJson}>
@@ -965,20 +978,51 @@ export function TargetVisuDesigner({
                           value={current.action.kind}
                           onChange={(e) =>
                             patchElement({
-                              action: { ...current.action, kind: e.target.value as VisuElement['action']['kind'] },
+                              action: {
+                                ...current.action,
+                                kind: e.target.value as VisuElement['action']['kind'],
+                                target:
+                                  e.target.value === 'navigate'
+                                    ? (doc.screens.find((s) => s.id !== screen.id)?.id ?? screen.id)
+                                    : current.action.kind === 'navigate'
+                                      ? ''
+                                      : current.action.target,
+                              },
                             })
                           }
                         >
-                          {(current.kind === 'number' ? ['none', 'write'] : ['none', 'set', 'toggle', 'momentary']).map(
-                            (kind) => (
-                              <option key={kind} value={kind}>
-                                {kind}
-                              </option>
-                            ),
-                          )}
+                          {(current.kind === 'number'
+                            ? ['none', 'write']
+                            : ['none', 'set', 'toggle', 'momentary', 'navigate']
+                          ).map((kind) => (
+                            <option key={kind} value={kind}>
+                              {kind === 'navigate' ? 'Перейти на экран' : kind}
+                            </option>
+                          ))}
                         </select>
                       </label>
+                      {current.action.kind === 'navigate' && (
+                        <label className='flex flex-col gap-1'>
+                          Целевой экран
+                          <select
+                            className={control}
+                            aria-label='Target screen'
+                            value={current.action.target}
+                            onChange={(e) => patchElement({ action: { ...current.action, target: e.target.value } })}
+                          >
+                            {!doc.screens.some((s) => s.id === current.action.target) && (
+                              <option value={current.action.target}>Экран не найден</option>
+                            )}
+                            {doc.screens.map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
                       {current.action.kind !== 'none' &&
+                        current.action.kind !== 'navigate' &&
                         bindSelect(
                           'Action target',
                           current.action.target,
