@@ -10,6 +10,7 @@ import {
 const symbols = [
   { path: 'Pump.Run', type: 'BOOL', writable: true },
   { path: 'Pump.Pressure', type: 'REAL', writable: false },
+  { path: 'Pump.Setpoint', type: 'REAL', writable: true },
 ]
 function Harness({
   initial = emptyVisualization(),
@@ -239,4 +240,59 @@ it('toggles transparent background and border independently for Number', () => {
   expect(visibleRect?.getAttribute('stroke')).not.toBe('none')
   fireEvent.click(screen.getByLabelText('Transparent border'))
   expect(visibleRect?.getAttribute('stroke')).toBe('none')
+})
+
+it('configures Number Input + Output and enters a REAL value using the touch keypad in Preview', () => {
+  const main = newScreen('main', 'Main')
+  main.elements = [newElement('number', 'setpoint')]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('hit-area-setpoint'))
+  expect((screen.getByLabelText('Number mode') as HTMLSelectElement).value).toBe('output')
+  fireEvent.change(screen.getByLabelText('Value variable'), { target: { value: 'Pump.Setpoint' } })
+  fireEvent.change(screen.getByLabelText('Number mode'), { target: { value: 'input-output' } })
+  expect(doc().screens[0].elements[0]).toMatchObject({
+    numberMode: 'input-output',
+    bindings: { value: 'Pump.Setpoint' },
+    action: { kind: 'write', target: 'Pump.Setpoint' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  fireEvent.pointerDown(screen.getByTestId('hit-area-setpoint'))
+  expect(screen.getByRole('dialog', { name: /Numeric keypad/ })).toBeTruthy()
+  fireEvent.click(screen.getByLabelText('Keypad C'))
+  fireEvent.click(screen.getByLabelText('Keypad 2'))
+  fireEvent.click(screen.getByLabelText('Keypad 5'))
+  fireEvent.click(screen.getByLabelText('Keypad .'))
+  fireEvent.click(screen.getByLabelText('Keypad 5'))
+  fireEvent.click(screen.getByRole('button', { name: 'Записать' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect((screen.getByLabelText('Preview Pump.Setpoint') as HTMLInputElement).value).toBe('25.5')
+  expect(doc().screens[0].elements[0].action.target).toBe('Pump.Setpoint')
+})
+
+it('rejects input outside Number limits and keeps Output mode display only', () => {
+  const main = newScreen('main', 'Main')
+  const number = newElement('number', 'n')
+  number.minimum = 0
+  number.maximum = 10
+  number.bindings.value = 'Pump.Setpoint'
+  number.numberMode = 'input-output'
+  number.action = { kind: 'write', target: 'Pump.Setpoint', value: 0 }
+  main.elements = [number]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  fireEvent.pointerDown(screen.getByTestId('hit-area-n'))
+  fireEvent.click(screen.getByLabelText('Keypad C'))
+  fireEvent.click(screen.getByLabelText('Keypad 9'))
+  fireEvent.click(screen.getByLabelText('Keypad 9'))
+  fireEvent.click(screen.getByRole('button', { name: 'Записать' }))
+  expect(screen.getByRole('alert').textContent).toContain('Диапазон')
+  fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+  expect((screen.getByLabelText('Preview Pump.Setpoint') as HTMLInputElement).value).toBe('0')
+  fireEvent.click(screen.getByRole('button', { name: 'Design' }))
+  fireEvent.pointerDown(screen.getByTestId('hit-area-n'))
+  fireEvent.change(screen.getByLabelText('Number mode'), { target: { value: 'output' } })
+  expect(doc().screens[0].elements[0].action.kind).toBe('none')
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  fireEvent.pointerDown(screen.getByTestId('hit-area-n'))
+  expect(screen.queryByRole('dialog')).toBeNull()
 })
