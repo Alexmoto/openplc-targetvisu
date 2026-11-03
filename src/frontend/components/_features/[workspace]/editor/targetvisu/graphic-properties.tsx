@@ -57,7 +57,7 @@ export function GraphicProperties({
 
   const graphic = element.graphic ?? { data: '', fit: 'contain' as const, variants: [] }
   const variants = graphic.variants ?? []
-  const replaceVariant = (index: number, next: Graphic['variants'] extends (infer R)[] | undefined ? R : never) => {
+  const replaceVariant = (index: number, next: NonNullable<Graphic['variants']>[number]) => {
     const current = latest.current.element.graphic
     if (!current) return
     const updated = [...(current.variants ?? [])]
