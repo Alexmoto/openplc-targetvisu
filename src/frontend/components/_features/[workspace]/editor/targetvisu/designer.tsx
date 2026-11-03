@@ -997,7 +997,9 @@ export function TargetVisuDesigner({
                       {current.kind === 'number' && numeric('Border radius', current.borderRadius ?? 0, (n) => patchElement({ borderRadius: n }), 0, 100)}
                       {(['fill', 'activeFill', 'stroke', 'textColor'] as const).filter((key) => current.kind !== 'number' || key !== 'activeFill').map((key) => (
                         <label key={key} className='flex justify-between'>
-                          {key}
+                          {current.kind === 'number'
+                            ? { fill: 'Background Color', stroke: 'Border Color', textColor: 'Text Color', activeFill: 'Active fill' }[key]
+                            : key}
                           <input
                             type='color'
                             aria-label={key}
