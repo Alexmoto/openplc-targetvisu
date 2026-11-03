@@ -28,13 +28,21 @@ export const ElementSchema = z
     activeFill: color,
     stroke: color,
     strokeWidth: z.number().min(0).max(20),
+    borderRadius: z.number().min(0).max(100).default(0),
     textColor: color,
     fontSize: z.number().int().min(6).max(200),
     text: z.string().max(1024),
     decimals: z.number().int().min(0).max(6),
     minimum: z.number().finite(),
     maximum: z.number().finite(),
-    bindings: z.object({ value: symbol, visible: symbol, enabled: symbol }),
+    bindings: z.object({
+      value: symbol,
+      visible: symbol,
+      enabled: symbol,
+      fill: symbol.default(''),
+      stroke: symbol.default(''),
+      textColor: symbol.default(''),
+    }),
     action: z.object({
       kind: z.enum(['none', 'set', 'toggle', 'momentary', 'write', 'navigate']),
       target: symbol,
@@ -108,6 +116,8 @@ const numericTypes = new Set([
   'LWORD',
 ])
 export const isNumericType = (type: string) => numericTypes.has(type.toUpperCase())
+const colorTypes = new Set([...numericTypes].filter((type) => type !== 'REAL' && type !== 'LREAL'))
+export const isColorType = (type: string) => colorTypes.has(type.toUpperCase())
 export const emptyVisualization = (): TargetVisuDocument => ({
   version: 1,
   target: 'native-x11',
@@ -133,13 +143,14 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     activeFill: '#22c55e',
     stroke: '#475569',
     strokeWidth: 1,
+    borderRadius: 0,
     textColor: kind === 'button' ? '#ffffff' : '#172033',
     fontSize: 18,
     text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : '',
     decimals: 1,
     minimum: 0,
     maximum: 100,
-    bindings: { value: '', visible: '', enabled: '' },
+    bindings: { value: '', visible: '', enabled: '', fill: '', stroke: '', textColor: '' },
     action: { kind: 'none', target: '', value: true },
   }
 }
@@ -168,7 +179,12 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
           errors.push(`${label}: unknown variable ${path}`)
           continue
         }
-        const boolRequired = property !== 'value' || element.kind === 'indicator'
+        const isColorBinding = property === 'fill' || property === 'stroke' || property === 'textColor'
+        if (isColorBinding && element.kind !== 'number') errors.push(`${label}: ${property} color binding requires number`)
+        if (isColorBinding && !isColorType(found.type))
+          errors.push(`${label}: ${property} color requires integer PLC variable`)
+        const boolRequired =
+          property === 'visible' || property === 'enabled' || (property === 'value' && element.kind === 'indicator')
         if (boolRequired && found.type.toUpperCase() !== 'BOOL') errors.push(`${label}: ${property} requires BOOL`)
         if (property === 'value' && element.kind === 'number' && !isNumericType(found.type))
           errors.push(`${label}: number requires numeric value`)
