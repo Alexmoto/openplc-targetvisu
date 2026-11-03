@@ -188,6 +188,9 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
   for (const screen of doc.screens)
     for (const element of screen.elements) {
       const label = `${screen.name}/${element.name}`
+      if (element.kind !== 'button' && element.kind !== 'number' &&
+          (element.fillTransparent || element.strokeTransparent))
+        errors.push(`${label}: transparency is supported only for Button and Number`)
       if (element.kind === 'graphic' && !element.graphic?.data && !element.graphic?.variants?.length)
         errors.push(`${label}: image is missing`)
       for (const [property, path] of Object.entries(element.bindings)) {
