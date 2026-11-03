@@ -188,8 +188,8 @@ function RenderElement({
           width={e.width}
           height={e.height}
           rx={e.kind === 'button' ? 6 : e.kind === 'number' ? e.borderRadius ?? 0 : 0}
-          fill={fill}
-          stroke={stroke}
+          fill={(e.kind === 'button' || e.kind === 'number') && e.fillTransparent ? 'none' : fill}
+          stroke={(e.kind === 'button' || e.kind === 'number') && e.strokeTransparent ? 'none' : stroke}
           strokeWidth={e.strokeWidth}
         />
       ) : null}
@@ -841,6 +841,8 @@ export function TargetVisuDesigner({
                         width={element.width}
                         height={element.height}
                         fill='transparent'
+                        pointerEvents='all'
+                        data-testid={`hit-area-${element.id}`}
                       />
                       <RenderElement element={element} preview={preview} values={values} />
                     </g>
@@ -1021,6 +1023,28 @@ export function TargetVisuDesigner({
                       {numeric('Font size', current.fontSize, (n) => patchElement({ fontSize: n }), 6, 200)}
                       {numeric(current.kind === 'number' ? 'Border width' : 'Stroke width', current.strokeWidth, (n) => patchElement({ strokeWidth: n }), 0, 20)}
                       {current.kind === 'number' && numeric('Border radius', current.borderRadius ?? 0, (n) => patchElement({ borderRadius: n }), 0, 100)}
+                      {(current.kind === 'button' || current.kind === 'number') && (
+                        <>
+                          <label className='flex items-center gap-2'>
+                            <input
+                              type='checkbox'
+                              aria-label='Transparent background'
+                              checked={current.fillTransparent ?? false}
+                              onChange={(e) => patchElement({ fillTransparent: e.target.checked })}
+                            />
+                            Transparent background
+                          </label>
+                          <label className='flex items-center gap-2'>
+                            <input
+                              type='checkbox'
+                              aria-label='Transparent border'
+                              checked={current.strokeTransparent ?? false}
+                              onChange={(e) => patchElement({ strokeTransparent: e.target.checked })}
+                            />
+                            Transparent border line
+                          </label>
+                        </>
+                      )}
                       {(['fill', 'activeFill', 'stroke', 'textColor'] as const).filter((key) => current.kind !== 'number' || key !== 'activeFill').map((key) => (
                         <label key={key} className='flex justify-between'>
                           {current.kind === 'number'
