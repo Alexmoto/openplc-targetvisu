@@ -149,6 +149,7 @@ it('edits Number border radius and binds three PLC colors', () => {
   const element = newElement('number', 'display')
   s.elements = [element]
   render(<Harness initial={{ ...emptyVisualization(), screens: [s], startScreen: s.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('element-display'))
   fireEvent.change(screen.getByLabelText('Border radius'), { target: { value: '14' } })
   fireEvent.blur(screen.getByLabelText('Border radius'))
   expect(doc().screens[0].elements[0].borderRadius).toBe(14)
@@ -166,6 +167,7 @@ it('previews different Graphic View images when the BOOL selector changes', () =
   graphic.bindings.value = 'Pump.Run'
   main.elements = [graphic]
   render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('element-g'))
   expect(screen.getByLabelText('Image selector variable')).toBeTruthy()
   expect(screen.getByLabelText('Image state value 1')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
