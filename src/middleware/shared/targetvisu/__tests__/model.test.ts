@@ -151,3 +151,26 @@ it('supports optional PNG screen backgrounds while retaining color-only screens'
     ...doc, screens: [{ ...doc.screens[0], backgroundGraphic: { data: png, fit: 'cover', variants: [] } }],
   }).success).toBe(false)
 })
+
+it('preserves transparent Button/Number settings and defaults for old projects', () => {
+  const doc = document()
+  const button = newElement('button', 'transparent-btn')
+  const number = newElement('number', 'transparent-num')
+  button.fillTransparent = true
+  button.strokeTransparent = true
+  number.fillTransparent = true
+  number.strokeTransparent = false
+  doc.screens[0].elements = [button, number]
+  expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, symbols)))).toEqual(doc)
+  const legacy = JSON.parse(JSON.stringify(doc))
+  for (const e of legacy.screens[0].elements) {
+    delete e.fillTransparent
+    delete e.strokeTransparent
+  }
+  const parsed = TargetVisuSchema.parse(legacy)
+  expect(parsed.screens[0].elements.every((e) => e.fillTransparent === false && e.strokeTransparent === false)).toBe(true)
+  const invalid = newElement('rectangle', 'wrong')
+  invalid.fillTransparent = true
+  doc.screens[0].elements = [invalid]
+  expect(validateBindings(doc, symbols).join()).toContain('only for Button and Number')
+})
