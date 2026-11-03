@@ -174,3 +174,31 @@ it('preserves transparent Button/Number settings and defaults for old projects',
   doc.screens[0].elements = [invalid]
   expect(validateBindings(doc, symbols).join()).toContain('only for Button and Number')
 })
+
+it('allows Number Input + Output only for its displayed, writable numeric PLC variable', () => {
+  const doc = document()
+  const number = newElement('number', 'n')
+  number.bindings.value = 'Setpoint'
+  number.numberMode = 'input-output'
+  number.action = { kind: 'write', target: 'Setpoint', value: 0 }
+  doc.screens[0].elements = [number]
+  const allowed = [...symbols, { path: 'Setpoint', type: 'REAL', writable: true }]
+  expect(validateBindings(doc, allowed)).toEqual([])
+  expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, allowed)))).toEqual(doc)
+  number.action.target = 'main.Run'
+  expect(validateBindings(doc, allowed).join()).toContain('displayed value variable')
+  number.action.target = 'Setpoint'
+  expect(validateBindings(doc, [...symbols, { path: 'Setpoint', type: 'REAL', writable: false }]).join())
+    .toContain('read-only')
+  number.numberMode = 'output'
+  expect(validateBindings(doc, allowed).join()).toContain('Output mode')
+  number.numberMode = 'input-output'
+  number.bindings.value = ''
+  expect(validateBindings(doc, allowed).join()).toContain('requires a value variable')
+  number.bindings.value = 'Setpoint'
+  delete number.numberMode
+  expect(validateBindings(doc, allowed)).toEqual([]) // legacy Number action: write
+  number.numberMode = 'input-output'
+  number.action.kind = 'none'
+  expect(validateBindings(doc, allowed).join()).toContain('must write')
+})
