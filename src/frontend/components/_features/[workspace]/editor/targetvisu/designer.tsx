@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import { GraphicProperties } from './graphic-properties'
+import { ScreenBackgroundProperties } from './screen-background-properties'
 import { selectGraphicData } from '../../../../../../middleware/shared/targetvisu/graphics'
 
 import type {
@@ -763,6 +764,24 @@ export function TargetVisuDesigner({
                     />
                   </pattern>
                 </defs>
+                {screen.backgroundGraphic && (
+                  <image
+                    x={0}
+                    y={0}
+                    width={screen.width}
+                    height={screen.height}
+                    href={screen.backgroundGraphic.data}
+                    preserveAspectRatio={
+                      screen.backgroundGraphic.fit === 'stretch'
+                        ? 'none'
+                        : screen.backgroundGraphic.fit === 'cover'
+                          ? 'xMidYMid slice'
+                          : 'xMidYMid meet'
+                    }
+                    pointerEvents='none'
+                    data-testid='screen-background-image'
+                  />
+                )}
                 {!preview && snap && (
                   <rect
                     width={screen.width}
@@ -1217,6 +1236,11 @@ export function TargetVisuDesigner({
                       onChange={(e) => editScreen((s) => ({ ...s, background: e.target.value }))}
                     />
                   </label>
+                  <ScreenBackgroundProperties
+                    key={screen.id}
+                    backgroundGraphic={screen.backgroundGraphic}
+                    onChange={(backgroundGraphic) => editScreen((s) => ({ ...s, backgroundGraphic }))}
+                  />
                   <button
                     className={button}
                     disabled={screen.id === doc.startScreen}
