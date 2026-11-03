@@ -116,7 +116,7 @@ function RenderElement({
             width={e.width}
             height={e.height}
             preserveAspectRatio={
-              e.graphic.fit === 'stretch' ? 'none' : e.graphic.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'
+              graphic?.fit === 'stretch' ? 'none' : graphic?.fit === 'cover' ? 'xMidYMid slice' : 'xMidYMid meet'
             }
           />
         ) : (
