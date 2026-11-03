@@ -149,6 +149,7 @@ it('edits Number border radius and binds three PLC colors', () => {
   const element = newElement('number', 'display')
   s.elements = [element]
   render(<Harness initial={{ ...emptyVisualization(), screens: [s], startScreen: s.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('element-display'))
   fireEvent.change(screen.getByLabelText('Border radius'), { target: { value: '14' } })
   fireEvent.blur(screen.getByLabelText('Border radius'))
   expect(doc().screens[0].elements[0].borderRadius).toBe(14)
