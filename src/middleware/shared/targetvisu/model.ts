@@ -64,6 +64,10 @@ export const ScreenSchema = z
     width: z.number().int().min(160).max(8192),
     height: z.number().int().min(120).max(8192),
     background: color,
+    backgroundGraphic: z.object({
+      data: png.refine((data) => !!graphicDimensions(data), 'Invalid screen background PNG'),
+      fit: z.enum(['contain', 'cover', 'stretch']),
+    }).strict().optional(),
     grid: z.number().int().min(1).max(100),
     elements: z.array(ElementSchema).max(1000),
   })

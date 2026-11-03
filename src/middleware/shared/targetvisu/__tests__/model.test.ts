@@ -134,3 +134,20 @@ it('supports legacy Number documents and validates optional PLC color bindings',
   element.borderRadius = 101
   expect(TargetVisuSchema.safeParse(doc).success).toBe(false)
 })
+
+it('supports optional PNG screen backgrounds while retaining color-only screens', () => {
+  const doc = document()
+  expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, symbols)))).toEqual(doc)
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGP4z8DwHwgZAA/5Av4tR4H0AAAAAElFTkSuQmCC'
+  doc.screens[0].backgroundGraphic = { data: png, fit: 'cover' }
+  expect(TargetVisuSchema.parse(JSON.parse(exportVisualization(doc, symbols)))).toEqual(doc)
+  expect(TargetVisuSchema.safeParse({
+    ...doc, screens: [{ ...doc.screens[0], backgroundGraphic: { data: 'file:///tmp/p.png', fit: 'cover' } }],
+  }).success).toBe(false)
+  expect(TargetVisuSchema.safeParse({
+    ...doc, screens: [{ ...doc.screens[0], backgroundGraphic: { data: png, fit: 'unknown' } }],
+  }).success).toBe(false)
+  expect(TargetVisuSchema.safeParse({
+    ...doc, screens: [{ ...doc.screens[0], backgroundGraphic: { data: png, fit: 'cover', variants: [] } }],
+  }).success).toBe(false)
+})
