@@ -203,3 +203,40 @@ it('renders an embedded screen background below primitives and edits its scaling
   expect(screen.queryByTestId('screen-background-image')).toBeNull()
   expect(doc().screens[0].background).toBe('#f3f5f7')
 })
+
+it('makes Button transparent without losing full-area pointer events', () => {
+  const main = newScreen('main', 'Main')
+  const e = newElement('button', 'transparent-button')
+  e.action = { kind: 'toggle', target: 'Pump.Run', value: true }
+  main.elements = [e]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('hit-area-transparent-button'))
+  fireEvent.click(screen.getByLabelText('Transparent background'))
+  fireEvent.click(screen.getByLabelText('Transparent border'))
+  expect(doc().screens[0].elements[0]).toMatchObject({ fillTransparent: true, strokeTransparent: true })
+  expect(screen.getByTestId('element-transparent-button').querySelector('rect:not([data-testid])')?.getAttribute('fill')).toBe('none')
+  const hitArea = screen.getByTestId('hit-area-transparent-button')
+  expect(hitArea.getAttribute('pointer-events')).toBe('all')
+  expect(hitArea.getAttribute('width')).toBe(String(e.width))
+  expect(hitArea.getAttribute('height')).toBe(String(e.height))
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  fireEvent.pointerDown(screen.getByTestId('hit-area-transparent-button'))
+  expect((screen.getByLabelText('Preview Pump.Run') as HTMLInputElement).checked).toBe(true)
+  fireEvent.pointerDown(screen.getByTestId('hit-area-transparent-button'))
+  expect((screen.getByLabelText('Preview Pump.Run') as HTMLInputElement).checked).toBe(false)
+})
+
+it('toggles transparent background and border independently for Number', () => {
+  const main = newScreen('main', 'Main')
+  main.elements = [newElement('number', 'numeric')]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('hit-area-numeric'))
+  fireEvent.click(screen.getByLabelText('Transparent background'))
+  expect(doc().screens[0].elements[0].fillTransparent).toBe(true)
+  expect(doc().screens[0].elements[0].strokeTransparent).toBe(false)
+  const visibleRect = screen.getByTestId('element-numeric').querySelector('rect:not([data-testid])')
+  expect(visibleRect?.getAttribute('fill')).toBe('none')
+  expect(visibleRect?.getAttribute('stroke')).not.toBe('none')
+  fireEvent.click(screen.getByLabelText('Transparent border'))
+  expect(visibleRect?.getAttribute('stroke')).toBe('none')
+})
