@@ -4,6 +4,11 @@ import { graphicDimensions, MAX_GRAPHIC_BYTES, PNG_PREFIX } from './graphics'
 
 const color = z.string().regex(/^#[0-9a-fA-F]{6}$/)
 const symbol = z.string().max(256)
+const png = z.string().max(PNG_PREFIX.length + 4 * Math.ceil(MAX_GRAPHIC_BYTES / 3))
+const graphicVariant = z.object({
+  value: z.number().int().min(-2147483648).max(4294967295),
+  data: png.refine((data) => !!graphicDimensions(data), 'Invalid embedded PNG'),
+}).strict()
 export const ElementSchema = z
   .object({
     id: z.string().min(1).max(128),
@@ -11,13 +16,15 @@ export const ElementSchema = z
     kind: z.enum(['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number', 'graphic']),
     graphic: z
       .object({
-        data: z
-          .string()
-          .max(PNG_PREFIX.length + 4 * Math.ceil(MAX_GRAPHIC_BYTES / 3))
-          .refine((data) => data === '' || !!graphicDimensions(data), 'Invalid embedded PNG'),
+        data: png.refine((data) => data === '' || !!graphicDimensions(data), 'Invalid embedded PNG'),
         fit: z.enum(['contain', 'cover', 'stretch']),
+        variants: z.array(graphicVariant).max(16).optional(),
       })
       .strict()
+      .refine((graphic) => {
+        const variants = graphic.variants ?? []
+        return new Set(variants.map((variant) => variant.value)).size === variants.length
+      }, 'Duplicate image state value')
       .optional(),
     lineDirection: z.enum(['horizontal', 'vertical', 'diagonal-down', 'diagonal-up']).default('horizontal'),
     x: z.number().finite().min(0).max(8192),
@@ -118,6 +125,8 @@ const numericTypes = new Set([
 export const isNumericType = (type: string) => numericTypes.has(type.toUpperCase())
 const colorTypes = new Set([...numericTypes].filter((type) => type !== 'REAL' && type !== 'LREAL'))
 export const isColorType = (type: string) => colorTypes.has(type.toUpperCase())
+const imageSelectorTypes = new Set(['BOOL', 'SINT', 'INT', 'DINT', 'USINT', 'UINT', 'UDINT', 'BYTE', 'WORD', 'DWORD'])
+export const isGraphicSelectorType = (type: string) => imageSelectorTypes.has(type.toUpperCase())
 export const emptyVisualization = (): TargetVisuDocument => ({
   version: 1,
   target: 'native-x11',
@@ -133,7 +142,7 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     id,
     name: `${kind}_${id.slice(0, 6)}`,
     kind,
-    ...(kind === 'graphic' ? { graphic: { data: '', fit: 'contain' as const } } : {}),
+    ...(kind === 'graphic' ? { graphic: { data: '', fit: 'contain' as const, variants: [] } } : {}),
     lineDirection: 'horizontal',
     x: 20,
     y: 20,
@@ -171,7 +180,8 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
   for (const screen of doc.screens)
     for (const element of screen.elements) {
       const label = `${screen.name}/${element.name}`
-      if (element.kind === 'graphic' && !element.graphic?.data) errors.push(`${label}: image is missing`)
+      if (element.kind === 'graphic' && !element.graphic?.data && !element.graphic?.variants?.length)
+        errors.push(`${label}: image is missing`)
       for (const [property, path] of Object.entries(element.bindings)) {
         if (!path) continue
         const found = byPath.get(path.toLowerCase())
@@ -188,6 +198,8 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
         if (boolRequired && found.type.toUpperCase() !== 'BOOL') errors.push(`${label}: ${property} requires BOOL`)
         if (property === 'value' && element.kind === 'number' && !isNumericType(found.type))
           errors.push(`${label}: number requires numeric value`)
+        if (property === 'value' && element.kind === 'graphic' && !isGraphicSelectorType(found.type))
+          errors.push(`${label}: image selector requires BOOL or 32-bit integer PLC variable`)
       }
       const action = element.action
       if (element.kind === 'graphic' && action.kind !== 'none') errors.push(`${label}: graphic view is display-only`)

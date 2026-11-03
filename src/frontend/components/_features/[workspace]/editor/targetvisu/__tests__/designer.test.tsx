@@ -149,10 +149,33 @@ it('edits Number border radius and binds three PLC colors', () => {
   const element = newElement('number', 'display')
   s.elements = [element]
   render(<Harness initial={{ ...emptyVisualization(), screens: [s], startScreen: s.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('element-display'))
   fireEvent.change(screen.getByLabelText('Border radius'), { target: { value: '14' } })
   fireEvent.blur(screen.getByLabelText('Border radius'))
   expect(doc().screens[0].elements[0].borderRadius).toBe(14)
   expect(screen.getByLabelText('Background color variable')).toBeTruthy()
   expect(screen.getByLabelText('Border color variable')).toBeTruthy()
   expect(screen.getByLabelText('Text color variable')).toBeTruthy()
+})
+
+it('previews different Graphic View images when the BOOL selector changes', () => {
+  const main = newScreen('main', 'Main')
+  const graphic = newElement('graphic', 'g')
+  const idle = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAYAAAD0In+KAAAAD0lEQVR4nGP4z8DwHwgZAA/5Av4tR4H0AAAAAElFTkSuQmCC'
+  const active = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=='
+  graphic.graphic = { data: idle, fit: 'contain', variants: [{ value: 0, data: idle }, { value: 1, data: active }] }
+  graphic.bindings.value = 'Pump.Run'
+  main.elements = [graphic]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('element-g'))
+  expect(screen.getByLabelText('Image selector variable')).toBeTruthy()
+  expect(screen.getByLabelText('Image state value 1')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  const image = () => screen.getByTestId('element-g').querySelector('image')?.getAttribute('href')
+  expect(image()).toBe(idle)
+  fireEvent.click(screen.getByLabelText('Preview Pump.Run'))
+  expect(image()).toBe(active)
+  fireEvent.click(screen.getByLabelText('Preview Pump.Run'))
+  expect(image()).toBe(idle)
+  expect(doc().screens[0].elements[0].graphic?.variants).toHaveLength(2)
 })
