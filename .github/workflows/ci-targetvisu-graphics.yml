@@ -2,6 +2,7 @@ name: TargetVisu graphics and backgrounds
 on:
   pull_request:
     branches:
+      - feature/screen-background-image
       - feature/graphic-view-image-states
       - feature/number-dynamic-colors
       - main
