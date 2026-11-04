@@ -135,7 +135,8 @@ const colorTypes = new Set([...numericTypes].filter((type) => type !== 'REAL' &&
 export const isColorType = (type: string) => colorTypes.has(type.toUpperCase())
 const imageSelectorTypes = new Set(['BOOL', 'SINT', 'INT', 'DINT', 'USINT', 'UINT', 'UDINT', 'BYTE', 'WORD', 'DWORD'])
 export const isGraphicSelectorType = (type: string) => imageSelectorTypes.has(type.toUpperCase())
-export const isLampSelectorType = isGraphicSelectorType
+const lampSelectorTypes = new Set([...imageSelectorTypes].filter((type) => type !== 'BOOL'))
+export const isLampSelectorType = (type: string) => lampSelectorTypes.has(type.toUpperCase())
 export const emptyVisualization = (): TargetVisuDocument => ({
   version: 1,
   target: 'native-x11',
@@ -169,7 +170,6 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : '',
     decimals: 1,
     ...(kind === 'number' ? { numberMode: 'output' as const } : {}),
-    ...(kind === 'indicator' ? { indicatorStyle: 'classic' as const } : {}),
     minimum: 0,
     maximum: 100,
     bindings: { value: '', visible: '', enabled: '', fill: '', stroke: '', textColor: '' },
