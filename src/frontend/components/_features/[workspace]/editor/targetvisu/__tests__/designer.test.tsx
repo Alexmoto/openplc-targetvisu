@@ -307,7 +307,7 @@ it('renders all 12 indicator lamps by INT value and hides the entire indicator a
   expect((screen.getByLabelText('Indicator style') as HTMLSelectElement).value).toBe('classic')
   fireEvent.change(screen.getByLabelText('Indicator style'), { target: { value: 'lamp12' } })
   expect(screen.getByLabelText('Indicator lamp palette').children).toHaveLength(12)
-  expect(screen.getByTestId('indicator-lamp').getAttribute('data-state')).toBe('1')
+  expect(screen.getByTestId('element-lamp').querySelector('[data-testid="indicator-lamp"]')?.getAttribute('data-state')).toBe('1')
   fireEvent.change(screen.getByLabelText('Value variable'), { target: { value: 'Pump.Indicator' } })
   expect(doc().screens[0].elements[0]).toMatchObject({
     indicatorStyle: 'lamp12',
