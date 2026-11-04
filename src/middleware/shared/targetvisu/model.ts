@@ -169,7 +169,7 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : '',
     decimals: 1,
     ...(kind === 'number' ? { numberMode: 'output' as const } : {}),
-    ...(kind === 'indicator' ? { indicatorStyle: 'lamp12' as const } : {}),
+    ...(kind === 'indicator' ? { indicatorStyle: 'classic' as const } : {}),
     minimum: 0,
     maximum: 100,
     bindings: { value: '', visible: '', enabled: '', fill: '', stroke: '', textColor: '' },
