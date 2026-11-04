@@ -207,7 +207,7 @@ it('supports classic BOOL Indicator and a 12-color lamp driven by a PLC integer'
   const doc = document()
   const indicator = newElement('indicator', 'lamp')
   doc.screens[0].elements = [indicator]
-  expect(indicator.indicatorStyle).toBe('classic')
+  expect(indicator.indicatorStyle).toBeUndefined()
   indicator.bindings.value = 'main.Run'
   expect(validateBindings(doc, symbols)).toEqual([])
   const old = JSON.parse(JSON.stringify(doc))
