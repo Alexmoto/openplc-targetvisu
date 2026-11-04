@@ -2,9 +2,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { v4 as uuid } from 'uuid'
 import { GraphicProperties } from './graphic-properties'
+import { IndicatorLamp } from './indicator-lamp'
 import { NumberKeypad } from './number-keypad'
 import { ScreenBackgroundProperties } from './screen-background-properties'
 import { selectGraphicData } from '../../../../../../middleware/shared/targetvisu/graphics'
+import { LAMP_LABELS, lampState } from '../../../../../../middleware/shared/targetvisu/lamp-palette'
 
 import type {
   TargetVisuDocument,
@@ -18,6 +20,7 @@ import {
   fitElement,
   isColorType,
   isNumericType,
+  isLampSelectorType,
   newElement,
   newScreen,
   TargetVisuSchema,
@@ -105,6 +108,17 @@ function RenderElement({
   preview: boolean
   values: Record<string, VisuValue>
 }) {
+  if (e.kind === 'indicator' && e.indicatorStyle === 'lamp12') {
+    return (
+      <IndicatorLamp
+        state={preview ? valueAt(values, e.bindings.value) : 1}
+        x={e.x}
+        y={e.y}
+        width={e.width}
+        height={e.height}
+      />
+    )
+  }
   if (e.kind === 'graphic') {
     const graphic = e.graphic
     const data = graphic
@@ -425,6 +439,7 @@ export function TargetVisuDesigner({
     numericOnly = false,
     writable = false,
     colorOnly = false,
+    lampOnly = false,
   ) => (
     <label className='flex flex-col gap-1'>
       {label}
@@ -435,7 +450,8 @@ export function TargetVisuDesigner({
           .filter(
             (s) =>
               (!boolOnly || s.type === 'BOOL') && (!numericOnly || isNumericType(s.type)) &&
-              (!colorOnly || isColorType(s.type)) && (!writable || s.writable),
+              (!colorOnly || isColorType(s.type)) && (!lampOnly || isLampSelectorType(s.type)) &&
+              (!writable || s.writable),
           )
           .map((s) => (
             <option key={s.path} value={s.path}>
@@ -797,7 +813,9 @@ export function TargetVisuDesigner({
                 )}
                 {screen.elements.map((element) => {
                   const visible =
-                    !preview || !element.bindings.visible || valueAt(values, element.bindings.visible) === true
+                    (!preview || !element.bindings.visible || valueAt(values, element.bindings.visible) === true) &&
+                    (!preview || element.kind !== 'indicator' || element.indicatorStyle !== 'lamp12' ||
+                      lampState(valueAt(values, element.bindings.value)) !== 0)
                   if (!visible) return null
                   return (
                     <g
@@ -1031,7 +1049,10 @@ export function TargetVisuDesigner({
                           </label>
                         </>
                       )}
-                      {(['fill', 'activeFill', 'stroke', 'textColor'] as const).filter((key) => current.kind !== 'number' || key !== 'activeFill').map((key) => (
+                      {(['fill', 'activeFill', 'stroke', 'textColor'] as const).filter((key) =>
+                        (current.kind !== 'number' || key !== 'activeFill') &&
+                        !(current.kind === 'indicator' && current.indicatorStyle === 'lamp12')
+                      ).map((key) => (
                         <label key={key} className='flex justify-between'>
                           {current.kind === 'number'
                             ? { fill: 'Background Color', stroke: 'Border Color', textColor: 'Text Color', activeFill: 'Active fill' }[key]
@@ -1054,6 +1075,53 @@ export function TargetVisuDesigner({
                           )}
                         </div>
                       )}
+                      {current.kind === 'indicator' && (
+                        <div className='flex flex-col gap-2'>
+                          <label className='flex flex-col gap-1'>
+                            Indicator style
+                            <select
+                              className={control}
+                              aria-label='Indicator style'
+                              value={current.indicatorStyle ?? 'classic'}
+                              onChange={(event) => {
+                                const indicatorStyle = event.target.value as 'classic' | 'lamp12'
+                                const existing = symbols.find(
+                                  (s) => s.path.toLowerCase() === current.bindings.value.toLowerCase(),
+                                )
+                                const valid = existing && (
+                                  indicatorStyle === 'classic' ? existing.type === 'BOOL' :
+                                  isLampSelectorType(existing.type)
+                                )
+                                patchElement({
+                                  indicatorStyle,
+                                  bindings: {
+                                    ...current.bindings,
+                                    value: valid ? current.bindings.value : '',
+                                  },
+                                })
+                              }}
+                            >
+                              <option value='lamp12'>12-color lamp (0 = hidden)</option>
+                              <option value='classic'>Classic (BOOL)</option>
+                            </select>
+                          </label>
+                          {current.indicatorStyle === 'lamp12' && (
+                            <>
+                              <p>0: hidden. Values 1–12 select the corresponding lamp.</p>
+                              <div className='grid grid-cols-2 gap-2' aria-label='Indicator lamp palette'>
+                                {LAMP_LABELS.map((label, index) => (
+                                  <div key={label} className='flex items-center gap-1 text-xs'>
+                                    <svg width={26} height={26} viewBox='0 0 26 26'>
+                                      <IndicatorLamp state={index + 1} width={26} height={26} />
+                                    </svg>
+                                    <span>{index + 1}: {label}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
                       {bindSelect(
                         'Value variable',
                         current.bindings.value,
@@ -1065,11 +1133,13 @@ export function TargetVisuDesigner({
                             ? { action: { ...current.action, kind: 'write' as const, target: value } }
                             : {}),
                         }),
-                        current.kind === 'indicator',
+                        current.kind === 'indicator' && current.indicatorStyle !== 'lamp12',
                         current.kind === 'number',
                         current.kind === 'number' &&
                           (current.numberMode === 'input-output' ||
                             (!current.numberMode && current.action.kind === 'write')),
+                        false,
+                        current.kind === 'indicator' && current.indicatorStyle === 'lamp12',
                       )}
                     </>
                   )}
