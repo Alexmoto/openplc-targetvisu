@@ -4,6 +4,7 @@ import { join } from 'path'
 import { PLCProjectSchema, PLCRemoteDeviceSchema } from '../../../types/PLC/open-plc'
 import { generateModbusMasterConfig } from '../../../utils/modbus/generate-modbus-master-config'
 import { computeIoImage, IMAGE_AREAS_RUNTIME_V4 } from '../compute-io-image'
+import { parseTextualPouFromString } from '../../../../../frontend/utils/PLC/pou-text-parser'
 import { TextEncoder } from 'util'
 import { emptyVisualization, newElement, newScreen } from '../../../../../middleware/shared/targetvisu/model'
 import type { PLCProjectData } from '../../../types/PLC/open-plc'
@@ -159,6 +160,22 @@ test('example Modbus100Lamps project contains exactly 100 bound indicators drive
     JSON.parse(readFileSync(join(root, 'devices', 'remote', 'LampSource.json'), 'utf8')),
   )
   const source = readFileSync(join(root, 'pous', 'programs', 'main.st'), 'utf8')
+
+  // Regression: original main.st had two top-level documentation comments
+  // and no VAR_EXTERNAL declarations, so Editor failed to parse the POU and
+  // STruC++ rejected all 125 referenced names as undeclared.
+  const parsedMain = parseTextualPouFromString(source, 'st', 'program')
+  expect(parsedMain.name).toBe('main')
+  expect(parsedMain.interface.variables).toHaveLength(125)
+  expect(parsedMain.interface.variables.every((v) => v.class === 'external')).toBe(true)
+  expect(parsedMain.interface.variables.map((v) => v.name)).toEqual(
+    project.data.configuration.resource.globalVariables.map((v) => v.name),
+  )
+  expect(parsedMain.body.value.trim().split('\n')).toHaveLength(100)
+  expect(source).not.toMatch(/\bAT\s+%MW/)
+  expect(project.data.configuration.resource.globalVariables.slice(0, 25).map((v) => v.location)).toEqual(
+    Array.from({ length: 25 }, (_, i) => `%MW${i}`),
+  )
 
   const screen = project.data.targetVisu!.screens[0]
   const lamps = screen.elements.filter((e) => e.kind === 'indicator')
