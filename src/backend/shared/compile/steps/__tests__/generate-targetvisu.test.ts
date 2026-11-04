@@ -3,6 +3,7 @@ import { readFileSync } from 'fs'
 import { join } from 'path'
 import { PLCProjectSchema, PLCRemoteDeviceSchema } from '../../../types/PLC/open-plc'
 import { generateModbusMasterConfig } from '../../../utils/modbus/generate-modbus-master-config'
+import { computeIoImage, IMAGE_AREAS_RUNTIME_V4 } from '../compute-io-image'
 import { TextEncoder } from 'util'
 import { emptyVisualization, newElement, newScreen } from '../../../../../middleware/shared/targetvisu/model'
 import type { PLCProjectData } from '../../../types/PLC/open-plc'
@@ -201,6 +202,37 @@ test('example Modbus100Lamps project contains exactly 100 bound indicators drive
     fc: 3, offset: '0x0000', iec_location: '%MW0',
     len: 25, cycle_time_ms: 250, error_handling: 'set-to-zero',
   })])
+
+  // A 25-register request alone is NOT enough for the IO-image compiler.
+  // Each register must also have an explicit Modbus Master producer ioPoint.
+  const points = remote.modbusTcpConfig!.ioGroups[0].ioPoints!
+  expect(points).toHaveLength(25)
+  expect(points.map((point) => point.iecLocation)).toEqual(
+    Array.from({ length: 25 }, (_, i) => `%MW${i}`),
+  )
+  const computeImage = (ioPoints: typeof points) =>
+    computeIoImage({
+      projectData: {
+        ...project.data,
+        remoteDevices: [{
+          ...remote,
+          modbusTcpConfig: {
+            ...remote.modbusTcpConfig!,
+            ioGroups: [{ ...remote.modbusTcpConfig!.ioGroups[0], ioPoints }],
+          },
+        }],
+      },
+      capabilities: { pinMapping: false, vppIo: false, modbusTcpRemote: true, ethercat: false },
+      serverCapabilities: { modbusTcpServer: false, opcuaServer: false, s7Server: false },
+      areas: IMAGE_AREAS_RUNTIME_V4,
+    })
+  const image = computeImage(points)
+  expect(image.sizes['%MW']).toBe(25)
+  expect(image.unbacked).toEqual([])
+  expect(image.unsupported).toEqual([])
+  // Regression: the original fixture described only %MW0, although FC03
+  // reads 25 values. It must be rejected with 24 unbacked locations.
+  expect(computeImage(points.slice(0, 1)).unbacked).toHaveLength(24)
 
   // Smoke-check the TargetVisu deployment bundle with a synthetic compiled
   // debug map. The actual ST native compilation must be tested in Editor.
