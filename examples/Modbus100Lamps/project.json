@@ -1,0 +1,5290 @@
+{
+  "meta": {
+    "name": "Modbus100Lamps",
+    "type": "plc-project"
+  },
+  "data": {
+    "dataTypes": [],
+    "pous": [],
+    "libraries": [],
+    "configuration": {
+      "resource": {
+        "tasks": [
+          {
+            "name": "task0",
+            "triggering": "Cyclic",
+            "interval": "T#50ms",
+            "priority": 1
+          }
+        ],
+        "instances": [
+          {
+            "name": "instance0",
+            "program": "main",
+            "task": "task0"
+          }
+        ],
+        "globalVariables": [
+          {
+            "name": "MB_W00",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW0",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 0 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W01",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW1",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 1 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W02",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW2",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 2 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W03",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW3",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 3 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W04",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW4",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 4 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W05",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW5",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 5 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W06",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW6",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 6 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W07",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW7",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 7 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W08",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW8",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 8 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W09",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW9",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 9 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W10",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW10",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 10 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W11",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW11",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 11 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W12",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW12",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 12 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W13",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW13",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 13 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W14",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW14",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 14 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W15",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW15",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 15 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W16",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW16",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 16 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W17",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW17",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 17 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W18",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW18",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 18 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W19",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW19",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 19 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W20",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW20",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 20 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W21",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW21",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 21 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W22",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW22",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 22 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W23",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW23",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 23 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "MB_W24",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "%MW24",
+            "initialValue": null,
+            "documentation": "Modbus FC03 holding register offset 24 (zero-based)",
+            "debug": true
+          },
+          {
+            "name": "Lamp001",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 001",
+            "debug": true
+          },
+          {
+            "name": "Lamp002",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 002",
+            "debug": true
+          },
+          {
+            "name": "Lamp003",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 003",
+            "debug": true
+          },
+          {
+            "name": "Lamp004",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 004",
+            "debug": true
+          },
+          {
+            "name": "Lamp005",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 005",
+            "debug": true
+          },
+          {
+            "name": "Lamp006",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 006",
+            "debug": true
+          },
+          {
+            "name": "Lamp007",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 007",
+            "debug": true
+          },
+          {
+            "name": "Lamp008",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 008",
+            "debug": true
+          },
+          {
+            "name": "Lamp009",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 009",
+            "debug": true
+          },
+          {
+            "name": "Lamp010",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 010",
+            "debug": true
+          },
+          {
+            "name": "Lamp011",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 011",
+            "debug": true
+          },
+          {
+            "name": "Lamp012",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 012",
+            "debug": true
+          },
+          {
+            "name": "Lamp013",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 013",
+            "debug": true
+          },
+          {
+            "name": "Lamp014",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 014",
+            "debug": true
+          },
+          {
+            "name": "Lamp015",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 015",
+            "debug": true
+          },
+          {
+            "name": "Lamp016",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 016",
+            "debug": true
+          },
+          {
+            "name": "Lamp017",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 017",
+            "debug": true
+          },
+          {
+            "name": "Lamp018",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 018",
+            "debug": true
+          },
+          {
+            "name": "Lamp019",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 019",
+            "debug": true
+          },
+          {
+            "name": "Lamp020",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 020",
+            "debug": true
+          },
+          {
+            "name": "Lamp021",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 021",
+            "debug": true
+          },
+          {
+            "name": "Lamp022",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 022",
+            "debug": true
+          },
+          {
+            "name": "Lamp023",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 023",
+            "debug": true
+          },
+          {
+            "name": "Lamp024",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 024",
+            "debug": true
+          },
+          {
+            "name": "Lamp025",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 025",
+            "debug": true
+          },
+          {
+            "name": "Lamp026",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 026",
+            "debug": true
+          },
+          {
+            "name": "Lamp027",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 027",
+            "debug": true
+          },
+          {
+            "name": "Lamp028",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 028",
+            "debug": true
+          },
+          {
+            "name": "Lamp029",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 029",
+            "debug": true
+          },
+          {
+            "name": "Lamp030",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 030",
+            "debug": true
+          },
+          {
+            "name": "Lamp031",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 031",
+            "debug": true
+          },
+          {
+            "name": "Lamp032",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 032",
+            "debug": true
+          },
+          {
+            "name": "Lamp033",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 033",
+            "debug": true
+          },
+          {
+            "name": "Lamp034",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 034",
+            "debug": true
+          },
+          {
+            "name": "Lamp035",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 035",
+            "debug": true
+          },
+          {
+            "name": "Lamp036",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 036",
+            "debug": true
+          },
+          {
+            "name": "Lamp037",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 037",
+            "debug": true
+          },
+          {
+            "name": "Lamp038",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 038",
+            "debug": true
+          },
+          {
+            "name": "Lamp039",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 039",
+            "debug": true
+          },
+          {
+            "name": "Lamp040",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 040",
+            "debug": true
+          },
+          {
+            "name": "Lamp041",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 041",
+            "debug": true
+          },
+          {
+            "name": "Lamp042",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 042",
+            "debug": true
+          },
+          {
+            "name": "Lamp043",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 043",
+            "debug": true
+          },
+          {
+            "name": "Lamp044",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 044",
+            "debug": true
+          },
+          {
+            "name": "Lamp045",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 045",
+            "debug": true
+          },
+          {
+            "name": "Lamp046",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 046",
+            "debug": true
+          },
+          {
+            "name": "Lamp047",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 047",
+            "debug": true
+          },
+          {
+            "name": "Lamp048",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 048",
+            "debug": true
+          },
+          {
+            "name": "Lamp049",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 049",
+            "debug": true
+          },
+          {
+            "name": "Lamp050",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 050",
+            "debug": true
+          },
+          {
+            "name": "Lamp051",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 051",
+            "debug": true
+          },
+          {
+            "name": "Lamp052",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 052",
+            "debug": true
+          },
+          {
+            "name": "Lamp053",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 053",
+            "debug": true
+          },
+          {
+            "name": "Lamp054",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 054",
+            "debug": true
+          },
+          {
+            "name": "Lamp055",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 055",
+            "debug": true
+          },
+          {
+            "name": "Lamp056",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 056",
+            "debug": true
+          },
+          {
+            "name": "Lamp057",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 057",
+            "debug": true
+          },
+          {
+            "name": "Lamp058",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 058",
+            "debug": true
+          },
+          {
+            "name": "Lamp059",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 059",
+            "debug": true
+          },
+          {
+            "name": "Lamp060",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 060",
+            "debug": true
+          },
+          {
+            "name": "Lamp061",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 061",
+            "debug": true
+          },
+          {
+            "name": "Lamp062",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 062",
+            "debug": true
+          },
+          {
+            "name": "Lamp063",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 063",
+            "debug": true
+          },
+          {
+            "name": "Lamp064",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 064",
+            "debug": true
+          },
+          {
+            "name": "Lamp065",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 065",
+            "debug": true
+          },
+          {
+            "name": "Lamp066",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 066",
+            "debug": true
+          },
+          {
+            "name": "Lamp067",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 067",
+            "debug": true
+          },
+          {
+            "name": "Lamp068",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 068",
+            "debug": true
+          },
+          {
+            "name": "Lamp069",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 069",
+            "debug": true
+          },
+          {
+            "name": "Lamp070",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 070",
+            "debug": true
+          },
+          {
+            "name": "Lamp071",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 071",
+            "debug": true
+          },
+          {
+            "name": "Lamp072",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 072",
+            "debug": true
+          },
+          {
+            "name": "Lamp073",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 073",
+            "debug": true
+          },
+          {
+            "name": "Lamp074",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 074",
+            "debug": true
+          },
+          {
+            "name": "Lamp075",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 075",
+            "debug": true
+          },
+          {
+            "name": "Lamp076",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 076",
+            "debug": true
+          },
+          {
+            "name": "Lamp077",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 077",
+            "debug": true
+          },
+          {
+            "name": "Lamp078",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 078",
+            "debug": true
+          },
+          {
+            "name": "Lamp079",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 079",
+            "debug": true
+          },
+          {
+            "name": "Lamp080",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 080",
+            "debug": true
+          },
+          {
+            "name": "Lamp081",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 081",
+            "debug": true
+          },
+          {
+            "name": "Lamp082",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 082",
+            "debug": true
+          },
+          {
+            "name": "Lamp083",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 083",
+            "debug": true
+          },
+          {
+            "name": "Lamp084",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 084",
+            "debug": true
+          },
+          {
+            "name": "Lamp085",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 085",
+            "debug": true
+          },
+          {
+            "name": "Lamp086",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 086",
+            "debug": true
+          },
+          {
+            "name": "Lamp087",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 087",
+            "debug": true
+          },
+          {
+            "name": "Lamp088",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 088",
+            "debug": true
+          },
+          {
+            "name": "Lamp089",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 089",
+            "debug": true
+          },
+          {
+            "name": "Lamp090",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 090",
+            "debug": true
+          },
+          {
+            "name": "Lamp091",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 091",
+            "debug": true
+          },
+          {
+            "name": "Lamp092",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 092",
+            "debug": true
+          },
+          {
+            "name": "Lamp093",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 093",
+            "debug": true
+          },
+          {
+            "name": "Lamp094",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 094",
+            "debug": true
+          },
+          {
+            "name": "Lamp095",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 095",
+            "debug": true
+          },
+          {
+            "name": "Lamp096",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 096",
+            "debug": true
+          },
+          {
+            "name": "Lamp097",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 097",
+            "debug": true
+          },
+          {
+            "name": "Lamp098",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 098",
+            "debug": true
+          },
+          {
+            "name": "Lamp099",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 099",
+            "debug": true
+          },
+          {
+            "name": "Lamp100",
+            "type": {
+              "definition": "base-type",
+              "value": "WORD"
+            },
+            "location": "",
+            "initialValue": null,
+            "documentation": "State 0..12 of indicator 100",
+            "debug": true
+          }
+        ]
+      }
+    },
+    "targetVisu": {
+      "version": 1,
+      "target": "native-x11",
+      "refreshMs": 250,
+      "startScreen": "main-screen",
+      "screens": [
+        {
+          "id": "main-screen",
+          "name": "Main",
+          "width": 1024,
+          "height": 600,
+          "background": "#101820",
+          "grid": 10,
+          "elements": [
+            {
+              "id": "main-title",
+              "name": "Header",
+              "kind": "text",
+              "lineDirection": "horizontal",
+              "x": 18,
+              "y": 8,
+              "width": 988,
+              "height": 36,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#cbd5e1",
+              "fontSize": 19,
+              "text": "100 LAMPS  |  MODBUS TCP 192.168.1.138:502  |  UNIT 1  |  FC03 / 0..24",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              }
+            },
+            {
+              "id": "lamp-001",
+              "name": "Lamp001",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp001",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-002",
+              "name": "Lamp002",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp002",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-003",
+              "name": "Lamp003",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp003",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-004",
+              "name": "Lamp004",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp004",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-005",
+              "name": "Lamp005",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp005",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-006",
+              "name": "Lamp006",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp006",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-007",
+              "name": "Lamp007",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp007",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-008",
+              "name": "Lamp008",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp008",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-009",
+              "name": "Lamp009",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp009",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-010",
+              "name": "Lamp010",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 69,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp010",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-011",
+              "name": "Lamp011",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp011",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-012",
+              "name": "Lamp012",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp012",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-013",
+              "name": "Lamp013",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp013",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-014",
+              "name": "Lamp014",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp014",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-015",
+              "name": "Lamp015",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp015",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-016",
+              "name": "Lamp016",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp016",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-017",
+              "name": "Lamp017",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp017",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-018",
+              "name": "Lamp018",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp018",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-019",
+              "name": "Lamp019",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp019",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-020",
+              "name": "Lamp020",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 121,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp020",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-021",
+              "name": "Lamp021",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp021",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-022",
+              "name": "Lamp022",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp022",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-023",
+              "name": "Lamp023",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp023",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-024",
+              "name": "Lamp024",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp024",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-025",
+              "name": "Lamp025",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp025",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-026",
+              "name": "Lamp026",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp026",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-027",
+              "name": "Lamp027",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp027",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-028",
+              "name": "Lamp028",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp028",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-029",
+              "name": "Lamp029",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp029",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-030",
+              "name": "Lamp030",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 173,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp030",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-031",
+              "name": "Lamp031",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp031",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-032",
+              "name": "Lamp032",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp032",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-033",
+              "name": "Lamp033",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp033",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-034",
+              "name": "Lamp034",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp034",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-035",
+              "name": "Lamp035",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp035",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-036",
+              "name": "Lamp036",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp036",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-037",
+              "name": "Lamp037",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp037",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-038",
+              "name": "Lamp038",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp038",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-039",
+              "name": "Lamp039",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp039",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-040",
+              "name": "Lamp040",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 225,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp040",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-041",
+              "name": "Lamp041",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp041",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-042",
+              "name": "Lamp042",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp042",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-043",
+              "name": "Lamp043",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp043",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-044",
+              "name": "Lamp044",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp044",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-045",
+              "name": "Lamp045",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp045",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-046",
+              "name": "Lamp046",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp046",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-047",
+              "name": "Lamp047",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp047",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-048",
+              "name": "Lamp048",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp048",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-049",
+              "name": "Lamp049",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp049",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-050",
+              "name": "Lamp050",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 277,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp050",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-051",
+              "name": "Lamp051",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp051",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-052",
+              "name": "Lamp052",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp052",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-053",
+              "name": "Lamp053",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp053",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-054",
+              "name": "Lamp054",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp054",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-055",
+              "name": "Lamp055",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp055",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-056",
+              "name": "Lamp056",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp056",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-057",
+              "name": "Lamp057",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp057",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-058",
+              "name": "Lamp058",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp058",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-059",
+              "name": "Lamp059",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp059",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-060",
+              "name": "Lamp060",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 329,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp060",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-061",
+              "name": "Lamp061",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp061",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-062",
+              "name": "Lamp062",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp062",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-063",
+              "name": "Lamp063",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp063",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-064",
+              "name": "Lamp064",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp064",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-065",
+              "name": "Lamp065",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp065",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-066",
+              "name": "Lamp066",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp066",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-067",
+              "name": "Lamp067",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp067",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-068",
+              "name": "Lamp068",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp068",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-069",
+              "name": "Lamp069",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp069",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-070",
+              "name": "Lamp070",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 381,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp070",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-071",
+              "name": "Lamp071",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp071",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-072",
+              "name": "Lamp072",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp072",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-073",
+              "name": "Lamp073",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp073",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-074",
+              "name": "Lamp074",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp074",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-075",
+              "name": "Lamp075",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp075",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-076",
+              "name": "Lamp076",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp076",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-077",
+              "name": "Lamp077",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp077",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-078",
+              "name": "Lamp078",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp078",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-079",
+              "name": "Lamp079",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp079",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-080",
+              "name": "Lamp080",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 433,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp080",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-081",
+              "name": "Lamp081",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp081",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-082",
+              "name": "Lamp082",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp082",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-083",
+              "name": "Lamp083",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp083",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-084",
+              "name": "Lamp084",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp084",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-085",
+              "name": "Lamp085",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp085",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-086",
+              "name": "Lamp086",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp086",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-087",
+              "name": "Lamp087",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp087",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-088",
+              "name": "Lamp088",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp088",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-089",
+              "name": "Lamp089",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp089",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-090",
+              "name": "Lamp090",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 485,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp090",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-091",
+              "name": "Lamp091",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 52,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp091",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-092",
+              "name": "Lamp092",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 149,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp092",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-093",
+              "name": "Lamp093",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 247,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp093",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-094",
+              "name": "Lamp094",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 345,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp094",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-095",
+              "name": "Lamp095",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 442,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp095",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-096",
+              "name": "Lamp096",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 540,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp096",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-097",
+              "name": "Lamp097",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 637,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp097",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-098",
+              "name": "Lamp098",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 735,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp098",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-099",
+              "name": "Lamp099",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 833,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp099",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            },
+            {
+              "id": "lamp-100",
+              "name": "Lamp100",
+              "kind": "indicator",
+              "lineDirection": "horizontal",
+              "x": 930,
+              "y": 537,
+              "width": 42,
+              "height": 42,
+              "fill": "#cbd5e1",
+              "activeFill": "#22c55e",
+              "stroke": "#475569",
+              "strokeWidth": 1,
+              "fillTransparent": false,
+              "strokeTransparent": false,
+              "borderRadius": 0,
+              "textColor": "#dbeafe",
+              "fontSize": 18,
+              "text": "",
+              "decimals": 0,
+              "minimum": 0,
+              "maximum": 12,
+              "bindings": {
+                "value": "Lamp100",
+                "visible": "",
+                "enabled": "",
+                "fill": "",
+                "stroke": "",
+                "textColor": ""
+              },
+              "action": {
+                "kind": "none",
+                "target": "",
+                "value": true
+              },
+              "indicatorStyle": "lamp12"
+            }
+          ]
+        }
+      ]
+    },
+    "debugVariables": {
+      "global": [
+        "MB_W00",
+        "MB_W01",
+        "MB_W02",
+        "MB_W03",
+        "MB_W04",
+        "MB_W05",
+        "MB_W06",
+        "MB_W07",
+        "MB_W08",
+        "MB_W09",
+        "MB_W10",
+        "MB_W11",
+        "MB_W12",
+        "MB_W13",
+        "MB_W14",
+        "MB_W15",
+        "MB_W16",
+        "MB_W17",
+        "MB_W18",
+        "MB_W19",
+        "MB_W20",
+        "MB_W21",
+        "MB_W22",
+        "MB_W23",
+        "MB_W24",
+        "Lamp001",
+        "Lamp002",
+        "Lamp003",
+        "Lamp004",
+        "Lamp005",
+        "Lamp006",
+        "Lamp007",
+        "Lamp008",
+        "Lamp009",
+        "Lamp010",
+        "Lamp011",
+        "Lamp012",
+        "Lamp013",
+        "Lamp014",
+        "Lamp015",
+        "Lamp016",
+        "Lamp017",
+        "Lamp018",
+        "Lamp019",
+        "Lamp020",
+        "Lamp021",
+        "Lamp022",
+        "Lamp023",
+        "Lamp024",
+        "Lamp025",
+        "Lamp026",
+        "Lamp027",
+        "Lamp028",
+        "Lamp029",
+        "Lamp030",
+        "Lamp031",
+        "Lamp032",
+        "Lamp033",
+        "Lamp034",
+        "Lamp035",
+        "Lamp036",
+        "Lamp037",
+        "Lamp038",
+        "Lamp039",
+        "Lamp040",
+        "Lamp041",
+        "Lamp042",
+        "Lamp043",
+        "Lamp044",
+        "Lamp045",
+        "Lamp046",
+        "Lamp047",
+        "Lamp048",
+        "Lamp049",
+        "Lamp050",
+        "Lamp051",
+        "Lamp052",
+        "Lamp053",
+        "Lamp054",
+        "Lamp055",
+        "Lamp056",
+        "Lamp057",
+        "Lamp058",
+        "Lamp059",
+        "Lamp060",
+        "Lamp061",
+        "Lamp062",
+        "Lamp063",
+        "Lamp064",
+        "Lamp065",
+        "Lamp066",
+        "Lamp067",
+        "Lamp068",
+        "Lamp069",
+        "Lamp070",
+        "Lamp071",
+        "Lamp072",
+        "Lamp073",
+        "Lamp074",
+        "Lamp075",
+        "Lamp076",
+        "Lamp077",
+        "Lamp078",
+        "Lamp079",
+        "Lamp080",
+        "Lamp081",
+        "Lamp082",
+        "Lamp083",
+        "Lamp084",
+        "Lamp085",
+        "Lamp086",
+        "Lamp087",
+        "Lamp088",
+        "Lamp089",
+        "Lamp090",
+        "Lamp091",
+        "Lamp092",
+        "Lamp093",
+        "Lamp094",
+        "Lamp095",
+        "Lamp096",
+        "Lamp097",
+        "Lamp098",
+        "Lamp099",
+        "Lamp100"
+      ]
+    }
+  }
+}
