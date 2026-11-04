@@ -2,6 +2,7 @@ name: TargetVisu graphics and backgrounds
 on:
   pull_request:
     branches:
+      - feature/number-touch-keypad
       - feature/transparent-button-number
       - feature/screen-background-image
       - feature/graphic-view-image-states
@@ -32,5 +33,6 @@ jobs:
             'src/frontend/components/_features/[workspace]/editor/targetvisu/__tests__/number-keypad.test.ts' \
             'src/frontend/components/_features/[workspace]/editor/targetvisu/__tests__/graphic-properties.test.tsx' \
             'src/middleware/shared/targetvisu/__tests__/graphics.test.ts' \
+            'src/middleware/shared/targetvisu/__tests__/lamp-palette.test.ts' \
             'src/middleware/shared/targetvisu/__tests__/model.test.ts' \
             'src/backend/shared/compile/steps/__tests__/generate-targetvisu.test.ts'

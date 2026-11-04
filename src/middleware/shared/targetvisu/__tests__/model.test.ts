@@ -202,3 +202,37 @@ it('allows Number Input + Output only for its displayed, writable numeric PLC va
   number.action.kind = 'none'
   expect(validateBindings(doc, allowed).join()).toContain('must write')
 })
+
+it('supports classic BOOL Indicator and a 12-color lamp driven by a PLC integer', () => {
+  const doc = document()
+  const indicator = newElement('indicator', 'lamp')
+  doc.screens[0].elements = [indicator]
+  expect(indicator.indicatorStyle).toBeUndefined()
+  indicator.bindings.value = 'main.Run'
+  expect(validateBindings(doc, symbols)).toEqual([])
+  const old = JSON.parse(JSON.stringify(doc))
+  delete old.screens[0].elements[0].indicatorStyle
+  expect(TargetVisuSchema.parse(old).screens[0].elements[0].indicatorStyle).toBeUndefined()
+  indicator.indicatorStyle = 'lamp12'
+  indicator.bindings.value = 'main.State'
+  const withState = [...symbols, { path: 'main.State', type: 'INT', writable: false }]
+  expect(validateBindings(doc, withState)).toEqual([])
+  expect(JSON.parse(exportVisualization(doc, withState)).screens[0].elements[0].indicatorStyle).toBe('lamp12')
+  expect(validateBindings(doc, [...symbols, { path: 'main.State', type: 'REAL', writable: false }]).join())
+    .toContain('32-bit or smaller integer')
+  expect(validateBindings(doc, [...symbols, { path: 'main.State', type: 'BOOL', writable: false }]).join())
+    .toContain('32-bit or smaller integer')
+  indicator.bindings.value = ''
+  expect(validateBindings(doc, withState).join()).toContain('requires a PLC value variable')
+  indicator.bindings.value = 'main.State'
+  indicator.action = { kind: 'set', target: 'main.Run', value: true }
+  expect(validateBindings(doc, withState).join()).toContain('display-only')
+  indicator.action = { kind: 'none', target: '', value: true }
+  indicator.indicatorStyle = 'classic'
+  indicator.bindings.value = 'main.State'
+  expect(validateBindings(doc, withState).join()).toContain('requires BOOL')
+  indicator.indicatorStyle = 'lamp12'
+  indicator.bindings.value = 'main.State'
+  indicator.kind = 'rectangle'
+  expect(validateBindings(doc, withState).join()).toContain('Indicator style can only be set on Indicator')
+})

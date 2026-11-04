@@ -27,6 +27,7 @@ export const ElementSchema = z
       }, 'Duplicate image state value')
       .optional(),
     lineDirection: z.enum(['horizontal', 'vertical', 'diagonal-down', 'diagonal-up']).default('horizontal'),
+    indicatorStyle: z.enum(['classic', 'lamp12']).optional(),
     x: z.number().finite().min(0).max(8192),
     y: z.number().finite().min(0).max(8192),
     width: z.number().finite().min(8).max(8192),
@@ -134,6 +135,8 @@ const colorTypes = new Set([...numericTypes].filter((type) => type !== 'REAL' &&
 export const isColorType = (type: string) => colorTypes.has(type.toUpperCase())
 const imageSelectorTypes = new Set(['BOOL', 'SINT', 'INT', 'DINT', 'USINT', 'UINT', 'UDINT', 'BYTE', 'WORD', 'DWORD'])
 export const isGraphicSelectorType = (type: string) => imageSelectorTypes.has(type.toUpperCase())
+const lampSelectorTypes = new Set([...imageSelectorTypes].filter((type) => type !== 'BOOL'))
+export const isLampSelectorType = (type: string) => lampSelectorTypes.has(type.toUpperCase())
 export const emptyVisualization = (): TargetVisuDocument => ({
   version: 1,
   target: 'native-x11',
@@ -190,6 +193,12 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
   for (const screen of doc.screens)
     for (const element of screen.elements) {
       const label = `${screen.name}/${element.name}`
+      if (element.indicatorStyle && element.kind !== 'indicator')
+        errors.push(`${label}: Indicator style can only be set on Indicator`)
+      if (element.kind === 'indicator' && element.indicatorStyle === 'lamp12') {
+        if (!element.bindings.value) errors.push(`${label}: 12-color lamp requires a PLC value variable`)
+        if (element.action.kind !== 'none') errors.push(`${label}: 12-color lamp is display-only`)
+      }
       if (element.kind !== 'button' && element.kind !== 'number' &&
           (element.fillTransparent || element.strokeTransparent))
         errors.push(`${label}: transparency is supported only for Button and Number`)
@@ -207,10 +216,14 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
         if (isColorBinding && !isColorType(found.type))
           errors.push(`${label}: ${property} color requires integer PLC variable`)
         const boolRequired =
-          property === 'visible' || property === 'enabled' || (property === 'value' && element.kind === 'indicator')
+          property === 'visible' || property === 'enabled' ||
+          (property === 'value' && element.kind === 'indicator' && element.indicatorStyle !== 'lamp12')
         if (boolRequired && found.type.toUpperCase() !== 'BOOL') errors.push(`${label}: ${property} requires BOOL`)
         if (property === 'value' && element.kind === 'number' && !isNumericType(found.type))
           errors.push(`${label}: number requires numeric value`)
+        if (property === 'value' && element.kind === 'indicator' && element.indicatorStyle === 'lamp12' &&
+            !isLampSelectorType(found.type))
+          errors.push(`${label}: 12-color lamp requires a 32-bit or smaller integer PLC variable`)
         if (property === 'value' && element.kind === 'graphic' && !isGraphicSelectorType(found.type))
           errors.push(`${label}: image selector requires BOOL or 32-bit integer PLC variable`)
       }

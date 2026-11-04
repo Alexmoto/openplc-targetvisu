@@ -11,6 +11,7 @@ const symbols = [
   { path: 'Pump.Run', type: 'BOOL', writable: true },
   { path: 'Pump.Pressure', type: 'REAL', writable: false },
   { path: 'Pump.Setpoint', type: 'REAL', writable: true },
+  { path: 'Pump.Indicator', type: 'INT', writable: false },
 ]
 function Harness({
   initial = emptyVisualization(),
@@ -295,4 +296,32 @@ it('rejects input outside Number limits and keeps Output mode display only', () 
   fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
   fireEvent.pointerDown(screen.getByTestId('hit-area-n'))
   expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+it('renders all 12 indicator lamps by INT value and hides the entire indicator at zero', () => {
+  const main = newScreen('main', 'Main')
+  const indicator = newElement('indicator', 'lamp')
+  main.elements = [indicator]
+  render(<Harness initial={{ ...emptyVisualization(), screens: [main], startScreen: main.id }} />)
+  fireEvent.pointerDown(screen.getByTestId('hit-area-lamp'))
+  expect((screen.getByLabelText('Indicator style') as HTMLSelectElement).value).toBe('classic')
+  fireEvent.change(screen.getByLabelText('Indicator style'), { target: { value: 'lamp12' } })
+  expect(screen.getByLabelText('Indicator lamp palette').children).toHaveLength(12)
+  expect(screen.getByTestId('element-lamp').querySelector('[data-testid="indicator-lamp"]')?.getAttribute('data-state')).toBe('1')
+  fireEvent.change(screen.getByLabelText('Value variable'), { target: { value: 'Pump.Indicator' } })
+  expect(doc().screens[0].elements[0]).toMatchObject({
+    indicatorStyle: 'lamp12',
+    bindings: { value: 'Pump.Indicator' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Preview' }))
+  expect(screen.queryByTestId('element-lamp')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Preview Pump.Indicator'), { target: { value: '1' } })
+  expect(screen.getByTestId('element-lamp').querySelector('[data-testid="indicator-lamp"]')?.getAttribute('data-state')).toBe('1')
+  fireEvent.change(screen.getByLabelText('Preview Pump.Indicator'), { target: { value: '12' } })
+  expect(screen.getByTestId('element-lamp').querySelector('[data-testid="indicator-lamp"]')?.getAttribute('data-state')).toBe('12')
+  fireEvent.change(screen.getByLabelText('Preview Pump.Indicator'), { target: { value: '13' } })
+  expect(screen.queryByTestId('element-lamp')).toBeNull()
+  fireEvent.change(screen.getByLabelText('Preview Pump.Indicator'), { target: { value: '0' } })
+  expect(screen.queryByTestId('element-lamp')).toBeNull()
+  expect(doc().screens[0].elements[0].indicatorStyle).toBe('lamp12')
 })
