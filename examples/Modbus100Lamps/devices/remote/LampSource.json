@@ -1,0 +1,30 @@
+{
+  "name": "LampSource",
+  "protocol": "modbus-tcp",
+  "modbusTcpConfig": {
+    "transport": "tcp",
+    "host": "192.168.1.138",
+    "port": 502,
+    "slaveId": 1,
+    "timeout": 1000,
+    "ioGroups": [
+      {
+        "id": "lamp-word-block",
+        "name": "LampWords000to024",
+        "functionCode": "3",
+        "cycleTime": 250,
+        "offset": "0",
+        "length": 25,
+        "errorHandling": "set-to-zero",
+        "ioPoints": [
+          {
+            "id": "lamp-first-word",
+            "name": "LampWords",
+            "type": "WORD",
+            "iecLocation": "%MW0"
+          }
+        ]
+      }
+    ]
+  }
+}
