@@ -1,4 +1,8 @@
 import { createHash } from 'crypto'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { PLCProjectSchema, PLCRemoteDeviceSchema } from '../../../types/PLC/open-plc'
+import { generateModbusMasterConfig } from '../../../utils/modbus/generate-modbus-master-config'
 import { TextEncoder } from 'util'
 import { emptyVisualization, newElement, newScreen } from '../../../../../middleware/shared/targetvisu/model'
 import type { PLCProjectData } from '../../../types/PLC/open-plc'
@@ -145,4 +149,69 @@ test('Input + Output Number exports a write permission only to its displayed num
   await expect(generateTargetVisuBundle(project, JSON.stringify(map), md5, hash)).rejects.toThrow(
     'displayed value variable',
   )
+})
+
+test('example Modbus100Lamps project contains exactly 100 bound indicators driven by one 25-register FC03 read', async () => {
+  const root = join(process.cwd(), 'examples', 'Modbus100Lamps')
+  const project = PLCProjectSchema.parse(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')))
+  const remote = PLCRemoteDeviceSchema.parse(
+    JSON.parse(readFileSync(join(root, 'devices', 'remote', 'LampSource.json'), 'utf8')),
+  )
+  const source = readFileSync(join(root, 'pous', 'programs', 'main.st'), 'utf8')
+
+  const screen = project.data.targetVisu!.screens[0]
+  const lamps = screen.elements.filter((e) => e.kind === 'indicator')
+  expect(project.meta.type).toBe('plc-project')
+  expect(screen.name).toBe('Main')
+  expect(screen.width).toBe(1024)
+  expect(screen.height).toBe(600)
+  expect(lamps).toHaveLength(100)
+  expect(new Set(lamps.map((e) => e.id)).size).toBe(100)
+  expect(new Set(lamps.map((e) => `${e.x}:${e.y}`)).size).toBe(100)
+  for (let i = 1; i <= 100; i++) {
+    const e = lamps[i - 1]
+    const symbol = `Lamp${String(i).padStart(3, '0')}`
+    const word = Math.floor((i - 1) / 4)
+    const shift = ((i - 1) % 4) * 4
+    const src = `MB_W${String(word).padStart(2, '0')}`
+    const expr = shift ? `SHR(${src}, ${shift})` : src
+    expect(e).toMatchObject({
+      name: symbol, indicatorStyle: 'lamp12', bindings: { value: symbol },
+    })
+    expect(source).toContain(`${symbol} := ${expr} AND WORD#16#000F;`)
+    expect(e.x + e.width).toBeLessThanOrEqual(screen.width)
+    expect(e.y + e.height).toBeLessThanOrEqual(screen.height)
+  }
+
+  const variables = project.data.configuration.resource.globalVariables
+  expect(variables).toHaveLength(125)
+  for (let i = 0; i < 25; i++) {
+    expect(variables[i]).toMatchObject({
+      name: `MB_W${String(i).padStart(2, '0')}`,
+      location: `%MW${i}`,
+      type: { definition: 'base-type', value: 'WORD' },
+    })
+  }
+  const [modbus] = JSON.parse(generateModbusMasterConfig([remote])!)
+  expect(modbus.config).toMatchObject({
+    transport: 'tcp', host: '192.168.1.138', port: 502,
+    slave_id: 1, timeout_ms: 1000,
+  })
+  expect(modbus.config.io_points).toEqual([expect.objectContaining({
+    fc: 3, offset: '0x0000', iec_location: '%MW0',
+    len: 25, cycle_time_ms: 250, error_handling: 'set-to-zero',
+  })])
+
+  // Smoke-check the TargetVisu deployment bundle with a synthetic compiled
+  // debug map. The actual ST native compilation must be tested in Editor.
+  const map = {
+    version: 2,
+    md5,
+    leaves: variables.map((v, i) => ({
+      path: v.name, type: 'WORD', size: 2, arrayIdx: 0, elemIdx: i,
+    })),
+  }
+  const bundle = (await generateTargetVisuBundle(project.data, JSON.stringify(map), md5, hash))!
+  expect(JSON.parse(bundle.document).screens[0].elements).toHaveLength(101)
+  expect(JSON.parse(bundle.deployment).writableSymbols).toEqual([])
 })
