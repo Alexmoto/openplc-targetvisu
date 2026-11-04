@@ -1,0 +1,26 @@
+name: Example Modbus 100 Lamps
+on:
+  push:
+    branches: [feature/example-modbus-100-lamps]
+    paths:
+      - 'examples/Modbus100Lamps/**'
+      - 'src/backend/shared/compile/steps/__tests__/generate-targetvisu.test.ts'
+      - '.github/workflows/ci-example-modbus100.yml'
+  pull_request:
+    paths:
+      - 'examples/Modbus100Lamps/**'
+      - 'src/backend/shared/compile/steps/__tests__/generate-targetvisu.test.ts'
+      - '.github/workflows/ci-example-modbus100.yml'
+jobs:
+  validate-project:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run setup:strucpp
+      - name: Validate Modbus and TargetVisu project structure
+        run: npx jest --runInBand --no-coverage --runTestsByPath src/backend/shared/compile/steps/__tests__/generate-targetvisu.test.ts

@@ -1,4 +1,10 @@
 import { createHash } from 'crypto'
+import { readFileSync } from 'fs'
+import { join } from 'path'
+import { PLCProjectSchema, PLCRemoteDeviceSchema } from '../../../types/PLC/open-plc'
+import { generateModbusMasterConfig } from '../../../utils/modbus/generate-modbus-master-config'
+import { computeIoImage, IMAGE_AREAS_RUNTIME_V4 } from '../compute-io-image'
+import { parseTextualPouFromString } from '../../../../../frontend/utils/PLC/pou-text-parser'
 import { TextEncoder } from 'util'
 import { emptyVisualization, newElement, newScreen } from '../../../../../middleware/shared/targetvisu/model'
 import type { PLCProjectData } from '../../../types/PLC/open-plc'
@@ -145,4 +151,117 @@ test('Input + Output Number exports a write permission only to its displayed num
   await expect(generateTargetVisuBundle(project, JSON.stringify(map), md5, hash)).rejects.toThrow(
     'displayed value variable',
   )
+})
+
+test('example Modbus100Lamps project contains exactly 100 bound indicators driven by one 25-register FC03 read', async () => {
+  const root = join(process.cwd(), 'examples', 'Modbus100Lamps')
+  const project = PLCProjectSchema.parse(JSON.parse(readFileSync(join(root, 'project.json'), 'utf8')))
+  const remote = PLCRemoteDeviceSchema.parse(
+    JSON.parse(readFileSync(join(root, 'devices', 'remote', 'LampSource.json'), 'utf8')),
+  )
+  const source = readFileSync(join(root, 'pous', 'programs', 'main.st'), 'utf8')
+
+  // Regression: original main.st had two top-level documentation comments
+  // and no VAR_EXTERNAL declarations, so Editor failed to parse the POU and
+  // STruC++ rejected all 125 referenced names as undeclared.
+  const parsedMain = parseTextualPouFromString(source, 'st', 'program')
+  expect(parsedMain.name).toBe('main')
+  const parsedVariables = parsedMain.interface?.variables ?? []
+  expect(parsedVariables).toHaveLength(125)
+  expect(parsedVariables.every((v) => v.class === 'external')).toBe(true)
+  expect(parsedVariables.map((v) => v.name)).toEqual(
+    project.data.configuration.resource.globalVariables.map((v) => v.name),
+  )
+  expect(String(parsedMain.body.value).trim().split('\n')).toHaveLength(100)
+  expect(source).not.toMatch(/\bAT\s+%MW/)
+  expect(project.data.configuration.resource.globalVariables.slice(0, 25).map((v) => v.location)).toEqual(
+    Array.from({ length: 25 }, (_, i) => `%MW${i}`),
+  )
+
+  const screen = project.data.targetVisu!.screens[0]
+  const lamps = screen.elements.filter((e) => e.kind === 'indicator')
+  expect(project.meta.type).toBe('plc-project')
+  expect(screen.name).toBe('Main')
+  expect(screen.width).toBe(1024)
+  expect(screen.height).toBe(600)
+  expect(lamps).toHaveLength(100)
+  expect(new Set(lamps.map((e) => e.id)).size).toBe(100)
+  expect(new Set(lamps.map((e) => `${e.x}:${e.y}`)).size).toBe(100)
+  for (let i = 1; i <= 100; i++) {
+    const e = lamps[i - 1]
+    const symbol = `Lamp${String(i).padStart(3, '0')}`
+    const word = Math.floor((i - 1) / 4)
+    const shift = ((i - 1) % 4) * 4
+    const src = `MB_W${String(word).padStart(2, '0')}`
+    const expr = shift ? `SHR(${src}, ${shift})` : src
+    expect(e).toMatchObject({
+      name: symbol, indicatorStyle: 'lamp12', bindings: { value: symbol },
+    })
+    expect(source).toContain(`${symbol} := ${expr} AND WORD#16#000F;`)
+    expect(e.x + e.width).toBeLessThanOrEqual(screen.width)
+    expect(e.y + e.height).toBeLessThanOrEqual(screen.height)
+  }
+
+  const variables = project.data.configuration.resource.globalVariables
+  expect(variables).toHaveLength(125)
+  for (let i = 0; i < 25; i++) {
+    expect(variables[i]).toMatchObject({
+      name: `MB_W${String(i).padStart(2, '0')}`,
+      location: `%MW${i}`,
+      type: { definition: 'base-type', value: 'WORD' },
+    })
+  }
+  const [modbus] = JSON.parse(generateModbusMasterConfig([remote])!)
+  expect(modbus.config).toMatchObject({
+    transport: 'tcp', host: '192.168.1.138', port: 502,
+    slave_id: 1, timeout_ms: 1000,
+  })
+  expect(modbus.config.io_points).toEqual([expect.objectContaining({
+    fc: 3, offset: '0x0000', iec_location: '%MW0',
+    len: 25, cycle_time_ms: 250, error_handling: 'set-to-zero',
+  })])
+
+  // A 25-register request alone is NOT enough for the IO-image compiler.
+  // Each register must also have an explicit Modbus Master producer ioPoint.
+  const points = remote.modbusTcpConfig!.ioGroups[0].ioPoints!
+  expect(points).toHaveLength(25)
+  expect(points.map((point) => point.iecLocation)).toEqual(
+    Array.from({ length: 25 }, (_, i) => `%MW${i}`),
+  )
+  const computeImage = (ioPoints: typeof points) =>
+    computeIoImage({
+      projectData: {
+        ...project.data,
+        remoteDevices: [{
+          ...remote,
+          modbusTcpConfig: {
+            ...remote.modbusTcpConfig!,
+            ioGroups: [{ ...remote.modbusTcpConfig!.ioGroups[0], ioPoints }],
+          },
+        }],
+      },
+      capabilities: { pinMapping: false, vppIo: false, modbusTcpRemote: true, ethercat: false },
+      serverCapabilities: { modbusTcpServer: false, opcuaServer: false, s7Server: false },
+      areas: IMAGE_AREAS_RUNTIME_V4,
+    })
+  const image = computeImage(points)
+  expect(image.sizes['%MW']).toBe(25)
+  expect(image.unbacked).toEqual([])
+  expect(image.unsupported).toEqual([])
+  // Regression: the original fixture described only %MW0, although FC03
+  // reads 25 values. It must be rejected with 24 unbacked locations.
+  expect(computeImage(points.slice(0, 1)).unbacked).toHaveLength(24)
+
+  // Smoke-check the TargetVisu deployment bundle with a synthetic compiled
+  // debug map. The actual ST native compilation must be tested in Editor.
+  const map = {
+    version: 2,
+    md5,
+    leaves: variables.map((v, i) => ({
+      path: v.name, type: 'WORD', size: 2, arrayIdx: 0, elemIdx: i,
+    })),
+  }
+  const bundle = (await generateTargetVisuBundle(project.data, JSON.stringify(map), md5, hash))!
+  expect(JSON.parse(bundle.document).screens[0].elements).toHaveLength(101)
+  expect(JSON.parse(bundle.deployment).writableSymbols).toEqual([])
 })

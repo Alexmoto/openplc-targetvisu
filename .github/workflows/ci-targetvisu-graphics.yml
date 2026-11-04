@@ -2,6 +2,7 @@ name: TargetVisu graphics and backgrounds
 on:
   pull_request:
     branches:
+      - feature/indicator-lamp12
       - feature/number-touch-keypad
       - feature/transparent-button-number
       - feature/screen-background-image

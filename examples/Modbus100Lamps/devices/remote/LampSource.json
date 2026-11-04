@@ -1,0 +1,174 @@
+{
+  "name": "LampSource",
+  "protocol": "modbus-tcp",
+  "modbusTcpConfig": {
+    "transport": "tcp",
+    "host": "192.168.1.138",
+    "port": 502,
+    "slaveId": 1,
+    "timeout": 1000,
+    "ioGroups": [
+      {
+        "id": "lamp-word-block",
+        "name": "LampWords000to024",
+        "functionCode": "3",
+        "cycleTime": 250,
+        "offset": "0",
+        "length": 25,
+        "errorHandling": "set-to-zero",
+        "ioPoints": [
+          {
+            "id": "word-00",
+            "name": "LampWord00",
+            "type": "WORD",
+            "iecLocation": "%MW0"
+          },
+          {
+            "id": "word-01",
+            "name": "LampWord01",
+            "type": "WORD",
+            "iecLocation": "%MW1"
+          },
+          {
+            "id": "word-02",
+            "name": "LampWord02",
+            "type": "WORD",
+            "iecLocation": "%MW2"
+          },
+          {
+            "id": "word-03",
+            "name": "LampWord03",
+            "type": "WORD",
+            "iecLocation": "%MW3"
+          },
+          {
+            "id": "word-04",
+            "name": "LampWord04",
+            "type": "WORD",
+            "iecLocation": "%MW4"
+          },
+          {
+            "id": "word-05",
+            "name": "LampWord05",
+            "type": "WORD",
+            "iecLocation": "%MW5"
+          },
+          {
+            "id": "word-06",
+            "name": "LampWord06",
+            "type": "WORD",
+            "iecLocation": "%MW6"
+          },
+          {
+            "id": "word-07",
+            "name": "LampWord07",
+            "type": "WORD",
+            "iecLocation": "%MW7"
+          },
+          {
+            "id": "word-08",
+            "name": "LampWord08",
+            "type": "WORD",
+            "iecLocation": "%MW8"
+          },
+          {
+            "id": "word-09",
+            "name": "LampWord09",
+            "type": "WORD",
+            "iecLocation": "%MW9"
+          },
+          {
+            "id": "word-10",
+            "name": "LampWord10",
+            "type": "WORD",
+            "iecLocation": "%MW10"
+          },
+          {
+            "id": "word-11",
+            "name": "LampWord11",
+            "type": "WORD",
+            "iecLocation": "%MW11"
+          },
+          {
+            "id": "word-12",
+            "name": "LampWord12",
+            "type": "WORD",
+            "iecLocation": "%MW12"
+          },
+          {
+            "id": "word-13",
+            "name": "LampWord13",
+            "type": "WORD",
+            "iecLocation": "%MW13"
+          },
+          {
+            "id": "word-14",
+            "name": "LampWord14",
+            "type": "WORD",
+            "iecLocation": "%MW14"
+          },
+          {
+            "id": "word-15",
+            "name": "LampWord15",
+            "type": "WORD",
+            "iecLocation": "%MW15"
+          },
+          {
+            "id": "word-16",
+            "name": "LampWord16",
+            "type": "WORD",
+            "iecLocation": "%MW16"
+          },
+          {
+            "id": "word-17",
+            "name": "LampWord17",
+            "type": "WORD",
+            "iecLocation": "%MW17"
+          },
+          {
+            "id": "word-18",
+            "name": "LampWord18",
+            "type": "WORD",
+            "iecLocation": "%MW18"
+          },
+          {
+            "id": "word-19",
+            "name": "LampWord19",
+            "type": "WORD",
+            "iecLocation": "%MW19"
+          },
+          {
+            "id": "word-20",
+            "name": "LampWord20",
+            "type": "WORD",
+            "iecLocation": "%MW20"
+          },
+          {
+            "id": "word-21",
+            "name": "LampWord21",
+            "type": "WORD",
+            "iecLocation": "%MW21"
+          },
+          {
+            "id": "word-22",
+            "name": "LampWord22",
+            "type": "WORD",
+            "iecLocation": "%MW22"
+          },
+          {
+            "id": "word-23",
+            "name": "LampWord23",
+            "type": "WORD",
+            "iecLocation": "%MW23"
+          },
+          {
+            "id": "word-24",
+            "name": "LampWord24",
+            "type": "WORD",
+            "iecLocation": "%MW24"
+          }
+        ]
+      }
+    ]
+  }
+}
