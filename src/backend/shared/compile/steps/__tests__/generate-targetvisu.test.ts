@@ -166,12 +166,13 @@ test('example Modbus100Lamps project contains exactly 100 bound indicators drive
   // STruC++ rejected all 125 referenced names as undeclared.
   const parsedMain = parseTextualPouFromString(source, 'st', 'program')
   expect(parsedMain.name).toBe('main')
-  expect(parsedMain.interface.variables).toHaveLength(125)
-  expect(parsedMain.interface.variables.every((v) => v.class === 'external')).toBe(true)
-  expect(parsedMain.interface.variables.map((v) => v.name)).toEqual(
+  const parsedVariables = parsedMain.interface?.variables ?? []
+  expect(parsedVariables).toHaveLength(125)
+  expect(parsedVariables.every((v) => v.class === 'external')).toBe(true)
+  expect(parsedVariables.map((v) => v.name)).toEqual(
     project.data.configuration.resource.globalVariables.map((v) => v.name),
   )
-  expect(parsedMain.body.value.trim().split('\n')).toHaveLength(100)
+  expect(String(parsedMain.body.value).trim().split('\n')).toHaveLength(100)
   expect(source).not.toMatch(/\bAT\s+%MW/)
   expect(project.data.configuration.resource.globalVariables.slice(0, 25).map((v) => v.location)).toEqual(
     Array.from({ length: 25 }, (_, i) => `%MW${i}`),
