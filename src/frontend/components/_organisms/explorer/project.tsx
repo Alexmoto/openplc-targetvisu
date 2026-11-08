@@ -42,7 +42,6 @@ function validateProjectName(value: string): string | null {
 
 const Project = () => {
   const [mqttOpen, setMqttOpen] = useState(false)
-  const [mqttDeviceOpen, setMqttDeviceOpen] = useState<string | null>(null)
   const capabilities = useCapabilities()
   const projectPort = useProject()
   const { toast } = useToast()
@@ -697,7 +696,13 @@ const Project = () => {
                       leafType='remote-device'
                       label={device.name}
                       highlightQuery={searchQuery}
-                      onClick={() => setMqttDeviceOpen(device.name)}
+                      onClick={() =>
+                        handleCreateTab({
+                          name: device.name,
+                          path: `/devices/remote/${device.name}.json`,
+                          elementType: { type: 'remote-device', protocol: device.protocol },
+                        })
+                      }
                     />
                   ) : (
                     <ProjectTreeLeaf
@@ -721,13 +726,6 @@ const Project = () => {
         </ProjectTreeRoot>
       </div>
       {mqttOpen && <MqttEditor key={projectPath} onClose={() => setMqttOpen(false)} />}
-      {mqttDeviceOpen && (
-        <MqttEditor
-          key={`${projectPath}/${mqttDeviceOpen}`}
-          deviceName={mqttDeviceOpen}
-          onClose={() => setMqttDeviceOpen(null)}
-        />
-      )}
     </div>
   )
 }

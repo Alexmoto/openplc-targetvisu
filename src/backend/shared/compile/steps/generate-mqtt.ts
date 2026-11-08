@@ -78,7 +78,7 @@ export function generateMqttConfig(project: PLCProjectData, debugMap: string, md
   }
   add('', project.configuration.resource.globalVariables as PLCProjectData['pous'][number]['data']['variables'])
   for (const gvl of project.globalVariableLists ?? [])
-    add(`${gvl.name}.`, gvl.variables, /\\bCONSTANT\\b/i.test(gvl.qualifier ?? ''))
+    add(`${gvl.name}.`, gvl.variables, /\bCONSTANT\b/i.test(gvl.qualifier ?? ''))
   for (const instance of project.configuration.resource.instances) {
     const pou = project.pous.find(
       (p) => p.type === 'program' && p.data.name.toLowerCase() === instance.program.toLowerCase(),

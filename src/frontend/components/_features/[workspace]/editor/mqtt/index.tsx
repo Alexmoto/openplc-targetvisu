@@ -12,6 +12,7 @@ export function MqttEditor({ onClose, deviceName }: { onClose: () => void; devic
   const update = useOpenPLCStore((s) => s.projectActions.updateMqtt)
   const updateDevice = useOpenPLCStore((s) => s.projectActions.updateRemoteDeviceMqtt)
   const markDirty = useOpenPLCStore((s) => s.workspaceActions.setEditingState)
+  const markRemoteFileDirty = useOpenPLCStore((s) => s.sharedWorkspaceActions.handleFileAndWorkspaceSavedState)
   const canEdit = useOpenPLCStore((s) => s.workspace.canEdit)
   const [draft, setDraft] = useState<MqttConfig>(() =>
     structuredClone(
@@ -288,6 +289,7 @@ export function MqttEditor({ onClose, deviceName }: { onClose: () => void; devic
                 } else {
                   update(parsed.data)
                 }
+                if (deviceName) markRemoteFileDirty(deviceName)
                 markDirty('unsaved')
                 onClose()
               }}

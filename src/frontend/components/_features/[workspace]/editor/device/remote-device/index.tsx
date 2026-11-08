@@ -41,6 +41,7 @@ import { TooltipProvider } from '../../../../../_atoms/tooltip'
 import { TruncatedText } from '../../../../../_atoms/truncated-text'
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '../../../../../_molecules/modal'
 import { toast } from '../../../../[app]/toast/use-toast'
+import { MqttEditor } from '../../mqtt'
 import { DiagnosticsModal } from './diagnostics-modal'
 import { ImportIOGroupsModal, type IOGroupImportMode, type IOGroupImportPreview } from './import-io-groups-modal'
 
@@ -571,6 +572,7 @@ const IOPointRow = ({ ioPoint, offset, onUpdateAlias }: IOPointRowProps) => {
 }
 
 const RemoteDeviceEditor = () => {
+  const [mqttConfigOpen, setMqttConfigOpen] = useState(false)
   const { editor, project, projectActions, sharedWorkspaceActions, runtimeConnection, consoleActions } =
     useOpenPLCStore()
   const runtime = useRuntime()
@@ -940,6 +942,38 @@ const RemoteDeviceEditor = () => {
 
   const inputStyles =
     'h-[30px] w-full max-w-[200px] rounded-md border border-neutral-300 bg-white px-2 py-1 font-caption text-cp-sm font-medium text-neutral-850 outline-none focus:border-brand-medium-dark dark:border-neutral-850 dark:bg-neutral-950 dark:text-neutral-300'
+
+  if (protocol === 'mqtt') {
+    const config = remoteDevice?.mqttConfig
+    return (
+      <div aria-label='Remote device content container' className='flex h-full w-full flex-col gap-4 overflow-auto p-4'>
+        <h2 className='text-lg font-semibold'>MQTT Remote Device: {deviceName}</h2>
+        <p className='text-sm text-neutral-600 dark:text-neutral-400'>
+          Broker: {config?.host ?? 'Not configured'}:{config?.port ?? 1883}
+          {' · '}Status: {config?.enabled ? 'Enabled' : 'Disabled'}
+          {' · '}Bindings: {config?.bindings.length ?? 0}
+        </p>
+        <p className='text-sm text-neutral-600 dark:text-neutral-400'>
+          Each MQTT remote device uses its own broker connection. Variable mapping and publish modes are configured below.
+        </p>
+        <button
+          type='button'
+          aria-label={`Configure MQTT ${deviceName}`}
+          className='w-fit rounded bg-brand px-4 py-2 text-white'
+          onClick={() => setMqttConfigOpen(true)}
+        >
+          Configure MQTT
+        </button>
+        {mqttConfigOpen && (
+          <MqttEditor
+            key={deviceName}
+            deviceName={deviceName}
+            onClose={() => setMqttConfigOpen(false)}
+          />
+        )}
+      </div>
+    )
+  }
 
   if (protocol !== 'modbus-tcp') {
     return (
