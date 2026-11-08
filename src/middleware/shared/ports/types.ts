@@ -169,7 +169,7 @@ export interface PLCGlobalVariable extends Omit<PLCVariable, 'class'> {
 }
 
 export type ServerProtocol = 'modbus-tcp' | 's7comm' | 'ethernet-ip' | 'opcua'
-export type RemoteDeviceProtocol = 'modbus-tcp' | 'ethernet-ip' | 'ethercat' | 'profinet'
+export type RemoteDeviceProtocol = 'modbus-tcp' | 'ethernet-ip' | 'ethercat' | 'profinet' | 'mqtt'
 
 // Modbus
 
@@ -447,6 +447,8 @@ export interface PLCRemoteDevice {
   protocol: RemoteDeviceProtocol
   modbusTcpConfig?: ModbusRemoteTcpConfig
   ethercatConfig?: EthercatConfig
+  /** Independent broker settings, no located IEC addresses. */
+  mqttConfig?: import('../mqtt/model').MqttConfig
 }
 
 export interface PLCProjectLibraryRef {

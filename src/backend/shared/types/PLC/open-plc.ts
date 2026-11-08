@@ -706,7 +706,7 @@ const ModbusTcpConfigSchema = z.object({
 })
 type ModbusTcpConfig = z.infer<typeof ModbusTcpConfigSchema>
 
-const PLCRemoteDeviceProtocolSchema = z.enum(['modbus-tcp', 'ethernet-ip', 'ethercat', 'profinet'])
+const PLCRemoteDeviceProtocolSchema = z.enum(['modbus-tcp', 'ethernet-ip', 'ethercat', 'profinet', 'mqtt'])
 type PLCRemoteDeviceProtocol = z.infer<typeof PLCRemoteDeviceProtocolSchema>
 
 // ---- EtherCAT Configuration Schemas ----
@@ -948,6 +948,7 @@ const PLCRemoteDeviceSchema = z.object({
   protocol: PLCRemoteDeviceProtocolSchema,
   modbusTcpConfig: ModbusTcpConfigSchema.optional(),
   ethercatConfig: EthercatConfigSchema.optional(),
+  mqttConfig: MqttSchema.optional(),
 })
 type PLCRemoteDevice = z.infer<typeof PLCRemoteDeviceSchema>
 

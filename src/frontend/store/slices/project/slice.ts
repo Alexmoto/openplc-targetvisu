@@ -1,5 +1,6 @@
 import { produce } from 'immer'
 import type { StoreApi } from 'zustand'
+import { emptyMqtt } from '../../../../middleware/shared/mqtt/model'
 import { StateCreator } from 'zustand'
 
 import type {
@@ -2362,6 +2363,9 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
           if (device.protocol === 'modbus-tcp' && !device.modbusTcpConfig) {
             device.modbusTcpConfig = { host: '127.0.0.1', port: 502, slaveId: 1, timeout: 1000, ioGroups: [] }
           }
+          if (device.protocol === 'mqtt' && !device.mqttConfig) {
+            device.mqttConfig = emptyMqtt()
+          }
           slice.project.data.remoteDevices.push(device)
 
           // EtherCAT bus is driven by a dedicated thread inside the
@@ -2399,6 +2403,17 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
           slice.pendingDeletions.push(`devices/remote/${name}.json`)
 
           device.name = newName
+        }),
+      )
+      return ok()
+    },
+    updateRemoteDeviceMqtt: (name, config) => {
+      const device = getState().project.data.remoteDevices?.find((d) => d.name === name && d.protocol === 'mqtt')
+      if (!device) return fail('MQTT remote device not found')
+      setState(
+        produce((slice: ProjectSlice) => {
+          const target = slice.project.data.remoteDevices?.find((d) => d.name === name)
+          if (target?.protocol === 'mqtt') target.mqttConfig = config
         }),
       )
       return ok()

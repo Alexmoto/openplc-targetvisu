@@ -48,7 +48,7 @@ const CreatePLCElement = () => {
       case 'server':
         return projectCaps.hasServers
       case 'remote-device':
-        return projectCaps.hasRemoteDevices && (targetCaps.modbusTcpRemote || targetCaps.ethercat)
+        return projectCaps.hasRemoteDevices && (targetCaps.modbusTcpRemote || targetCaps.ethercat || targetCaps.nativeRetainStore)
       default:
         // function / function-block / data-type / global-variable-list — always available.
         return true
