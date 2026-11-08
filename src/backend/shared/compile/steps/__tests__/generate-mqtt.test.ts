@@ -68,3 +68,32 @@ test('rejects wildcards, feedback and duplicate input bindings', () => {
     }).success,
   ).toBe(false)
 })
+
+test('compiles per-binding publish policy and preserves legacy project defaults', () => {
+  const { project, map } = fixture()
+  const publisher = project.mqtt!.bindings[0]
+  publisher.direction = 'publish'
+  publisher.jsonPointer = ''
+  publisher.publishMode = 'interval'
+  publisher.publishIntervalMs = 2000
+  let out = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(out.bindings[0]).toMatchObject({ publishMode: 'interval', publishIntervalMs: 2000 })
+  publisher.publishMode = 'on-change'
+  delete publisher.publishIntervalMs
+  out = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(out.bindings[0].publishMode).toBe('on-change')
+  delete publisher.publishMode
+  out = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(out.bindings[0].publishMode).toBeUndefined()
+  expect(out.intervalMs).toBe(500)
+})
+
+test('rejects publish policies on subscriptions and invalid publish intervals', () => {
+  const { project } = fixture()
+  const base = project.mqtt!
+  expect(MqttSchema.safeParse({ ...base, bindings: [{ ...binding, publishMode: 'on-change' }] }).success).toBe(false)
+  expect(MqttSchema.safeParse({
+    ...base, bindings: [{ ...binding, direction: 'publish', jsonPointer: '',
+      publishMode: 'interval', publishIntervalMs: 50 }],
+  }).success).toBe(false)
+})

@@ -62,7 +62,7 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
                         password: 'Password',
                         caFile: 'CA file on Runtime (optional)',
                         keepalive: 'Keepalive (seconds)',
-                        intervalMs: 'Publish interval (ms)',
+                        intervalMs: 'Default publish interval (ms)',
                       }[key]
                     }
                     <input
@@ -83,12 +83,13 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
             </div>
             <p className='mb-3'>
               Credentials are saved in the project and uploaded to Runtime. Default TLS port is 8883. Leave CA file
-              empty to use system trust.
+              empty to use system trust. For Publish, choose periodic delivery (with an optional per-row interval)
+              or on-change delivery (once at connection and when the PLC value changes).
             </p>
             <table className='w-full text-left'>
               <thead>
                 <tr>
-                  {['Direction', 'PLC variable', 'Topic', 'JSON pointer', 'QoS', 'Retain', ''].map((v, i) => (
+                  {['Direction', 'PLC variable', 'Topic', 'JSON pointer', 'QoS', 'Retain', 'Publish mode', 'Interval (ms)', ''].map((v, i) => (
                     <th key={i} className='p-1'>
                       {v}
                     </th>
@@ -103,9 +104,14 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
                         aria-label={`Direction ${i + 1}`}
                         className={inputClass}
                         value={b.direction}
-                        onChange={(e) =>
-                          binding(i, { direction: e.target.value as typeof b.direction, jsonPointer: '' })
-                        }
+                        onChange={(e) => {
+                          const direction = e.target.value as typeof b.direction
+                          binding(i, {
+                            direction,
+                            jsonPointer: '',
+                            ...(direction === 'subscribe' ? { publishMode: undefined, publishIntervalMs: undefined } : {}),
+                          })
+                        }}
                       >
                         <option value='subscribe'>Subscribe</option>
                         <option value='publish'>Publish</option>
@@ -157,6 +163,42 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
                         disabled={b.direction === 'subscribe'}
                         checked={b.retain}
                         onChange={(e) => binding(i, { retain: e.target.checked })}
+                      />
+                    </td>
+                    <td>
+                      <select
+                        aria-label={`Publish mode ${i + 1}`}
+                        className={inputClass}
+                        disabled={b.direction !== 'publish'}
+                        value={b.publishMode ?? 'interval'}
+                        onChange={(e) =>
+                          binding(i, {
+                            publishMode: e.target.value as 'interval' | 'on-change',
+                            ...(e.target.value === 'on-change' ? { publishIntervalMs: undefined } : {}),
+                          })
+                        }
+                      >
+                        <option value='interval'>Interval</option>
+                        <option value='on-change'>On change</option>
+                      </select>
+                    </td>
+                    <td>
+                      <input
+                        aria-label={`Publish interval ${i + 1}`}
+                        title='Milliseconds; leave empty to use the default publish interval'
+                        className={inputClass}
+                        type='number'
+                        min={100}
+                        max={60000}
+                        step={100}
+                        placeholder={String(draft.intervalMs)}
+                        disabled={b.direction !== 'publish' || (b.publishMode ?? 'interval') !== 'interval'}
+                        value={b.publishIntervalMs ?? ''}
+                        onChange={(e) =>
+                          binding(i, {
+                            publishIntervalMs: e.target.value === '' ? undefined : Number(e.target.value),
+                          })
+                        }
                       />
                     </td>
                     <td>

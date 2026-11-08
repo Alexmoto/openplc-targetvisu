@@ -44,6 +44,9 @@ export const MqttSchema = z
           topic,
           qos: z.union([z.literal(0), z.literal(1), z.literal(2)]),
           retain: z.boolean(),
+          // Omitted options retain the legacy periodic global interval.
+          publishMode: z.enum(['interval', 'on-change']).optional(),
+          publishIntervalMs: z.number().int().min(100).max(60000).optional(),
           jsonPointer: z
             .string()
             .max(512)
@@ -65,6 +68,8 @@ export const MqttSchema = z
       if (ids.has(b.id)) error('Duplicate binding id')
       ids.add(b.id)
       if (b.direction === 'subscribe') {
+        if (b.publishMode !== undefined || b.publishIntervalMs !== undefined)
+          error('Publish options are only available for Publish bindings')
         const key = b.variable.toLowerCase()
         if (inputs.has(key)) error('Only one subscription may write a variable')
         inputs.add(key)

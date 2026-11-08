@@ -9,7 +9,10 @@ upload the project. The compiler includes `conf/mqtt.json` only when enabled,
 with variable addresses resolved against the current compiled debug map.
 
 - Subscribe: receive JSON scalar values or select a field using JSON Pointer.
-- Publish: periodically send a scalar variable, with per-binding QoS and retain.
+- Publish: send a scalar variable using a per-binding mode: `Interval` (optional
+  per-row 100..60000 ms, default to the global publish interval) or `On change`
+  (current value on connect/reconnect, then only when changed, sampled ~50 ms).
+  QoS and retain remain per binding. Old projects default to periodic publishing.
 - Broker host/port, client ID, username/password, TLS and optional Runtime CA path.
 - BOOL and numeric scalars. Use non-constant, unlocated variables for subscriptions;
   do not assign those variables from ST if they must retain received values.
