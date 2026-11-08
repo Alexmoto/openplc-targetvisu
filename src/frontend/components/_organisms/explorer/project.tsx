@@ -11,6 +11,7 @@ import { isUserManagementCapableRuntime } from '../../../utils/device'
 import { isNativeScreenAvailable } from '../../../utils/native-screens'
 import { useToast } from '../../_features/[app]/toast/use-toast'
 import { CreatePLCElement } from '../../_features/[workspace]/create-element'
+import { MqttEditor } from '../../_features/[workspace]/editor/mqtt'
 import {
   ProjectTreeBranch,
   ProjectTreeExpandableLeaf,
@@ -39,6 +40,7 @@ function validateProjectName(value: string): string | null {
 }
 
 const Project = () => {
+  const [mqttOpen, setMqttOpen] = useState(false)
   const capabilities = useCapabilities()
   const projectPort = useProject()
   const { toast } = useToast()
@@ -409,6 +411,15 @@ const Project = () => {
               >
                 ▧ TargetVisu (X11)
               </button>
+            </li>
+          )}
+
+          {projectCaps.hasResource && (
+            <li className='list-none'>
+              <button type='button' className='w-full px-8 py-2 text-left text-xs' onClick={() => setMqttOpen(true)}>
+                MQTT
+              </button>
+              {mqttOpen && <MqttEditor key={projectPath} onClose={() => setMqttOpen(false)} />}
             </li>
           )}
 

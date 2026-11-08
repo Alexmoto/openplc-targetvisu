@@ -1013,6 +1013,13 @@ const createProjectSlice: StateCreator<ProjectSliceRoot, [], [], ProjectSlice> =
         }),
       )
     },
+    updateMqtt: (config) => {
+      setState(
+        produce((slice: ProjectSlice) => {
+          slice.project.data.mqtt = config
+        }),
+      )
+    },
     updateTargetVisu: (document) => {
       setState(
         produce((slice: ProjectSlice) => {

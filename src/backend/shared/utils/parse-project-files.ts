@@ -2,7 +2,6 @@
  * Parses raw project file contents into the structured data `handleOpenProjectResponse`
  * expects — the single source of truth for project parsing on both Electron and web.
  */
-
 import { parseDataTypeFromText } from '../../../frontend/utils/PLC/data-type-declarations'
 import {
   detectLanguageFromExtension,
@@ -15,6 +14,7 @@ import {
   parseTextualPouFromString,
   POU_END_KEYWORDS,
 } from '../../../frontend/utils/PLC/pou-text-parser'
+import { MqttSchema } from '../../../middleware/shared/mqtt/model'
 import type { RawProjectFile } from '../../../middleware/shared/ports/project-port'
 import type {
   DeviceConfiguration,
@@ -73,6 +73,7 @@ export interface ParsedProjectData {
     }
     servers?: PLCServer[]
     remoteDevices?: PLCRemoteDevice[]
+    mqtt?: import('../../../middleware/shared/mqtt/model').MqttConfig
     targetVisu?: TargetVisuDocument
     /** Per-project library enablement; defaults to `[]` for legacy projects — bundled libs are
      *  always-on regardless of this list. */
@@ -424,6 +425,16 @@ export function parseProjectFiles(
     if (raw) {
       if (typeof raw === 'object' && raw !== null && 'data' in raw) {
         const section = (raw as { data: unknown }).data
+        if (
+          section &&
+          typeof section === 'object' &&
+          'mqtt' in section &&
+          section.mqtt !== undefined &&
+          !MqttSchema.safeParse(section.mqtt).success
+        ) {
+          fatalErrors.push('MQTT data is invalid. Project opening was stopped to preserve it.')
+          delete (section as { mqtt?: unknown }).mqtt
+        }
         if (section && typeof section === 'object' && 'targetVisu' in section && section.targetVisu !== undefined) {
           const visu = TargetVisuSchema.safeParse(section.targetVisu)
           if (!visu.success) {
@@ -607,6 +618,7 @@ export function parseProjectFiles(
       configurations: configuration,
       servers: servers.length > 0 ? servers : ((data.servers as PLCServer[]) ?? []),
       remoteDevices: remoteDevices.length > 0 ? remoteDevices : ((data.remoteDevices as PLCRemoteDevice[]) ?? []),
+      mqtt: data.mqtt as ParsedProjectData['projectData']['mqtt'],
       targetVisu: data.targetVisu as TargetVisuDocument | undefined,
       libraries: (data.libraries as ParsedProjectData['projectData']['libraries']) ?? [],
       ...(metaType === 'plc-library' ? { libraryManifest } : {}),

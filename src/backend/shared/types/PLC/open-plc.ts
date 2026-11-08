@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { MqttSchema } from '../../../../middleware/shared/mqtt/model'
 import { zodFBDFlowSchema, zodLadderFlowSchema } from '../../../../middleware/shared/ports/flow-schemas'
 // One source of truth for the IEC base-type list: the canonical
 // schema lives in `middleware/shared/ports/plc-schemas` and is
@@ -1008,6 +1009,7 @@ const PLCGlobalVariableListSchema = z.object({
 })
 
 const PLCProjectDataSchema = z.object({
+  mqtt: MqttSchema.optional(),
   targetVisu: TargetVisuSchema.optional(),
   // Defaulted: once data types live in datatypes/<Name>.dt files the
   // field disappears from newly-written project.json (DOPE-385);

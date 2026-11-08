@@ -457,6 +457,7 @@ export interface PLCProjectLibraryRef {
 }
 
 export interface PLCProjectData {
+  mqtt?: import('../mqtt/model').MqttConfig
   targetVisu?: import('../targetvisu/model').TargetVisuDocument
   dataTypes: PLCDataType[]
   /** Optional on the wire so projects saved before GVLs existed still parse; absent reads as `[]`. */
