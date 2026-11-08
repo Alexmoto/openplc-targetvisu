@@ -3,14 +3,19 @@
 Developed on `feature/mqtt-data-source`, based on `develop`; production `main`
 is unchanged. Requires the same feature branch of `Alexmoto/openplc-runtime`.
 
-Open **Remote Devices → MQTT** in the project tree, enable the connection, and add mappings between
+Choose **Create → Remote Device → MQTT**, assign a name and open the entry
+under **Remote Devices**. Each named MQTT device has its own broker settings,
+credentials and Subscribe/Publish mappings, saved in
+`devices/remote/<name>.json`. Previous project-level MQTT settings appear as
+**MQTT (legacy)** and continue to work. Enable the connection and add mappings between
 exact topics and named PLC variables. **Apply**, then **Save All**, compile and
 upload the project. The compiler includes `conf/mqtt.json` only when enabled,
 with variable addresses resolved against the current compiled debug map.
-MQTT is currently a **single project-scoped broker connection** shown under
-Remote Devices, not a separately named Modbus/EtherCAT-style remote device.
-Existing `project.json` MQTT settings are unchanged by the navigation move;
-no Runtime migration or update is required.
+New named MQTT devices compile into a version 2 `conf/mqtt.json` bundle:
+Runtime starts a separate MQTT client per connection. A legacy-only project
+continues to use version 1. Up to eight broker connections and 256 total
+bindings are supported. Subscribe bindings must target distinct PLC variables
+across all devices. Update Runtime to the matching feature branch.
 
 - Subscribe: receive JSON scalar values or select a field using JSON Pointer.
 - Publish: send a scalar variable using a per-binding mode: `Interval` (optional

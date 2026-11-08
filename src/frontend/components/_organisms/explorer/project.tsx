@@ -42,12 +42,13 @@ function validateProjectName(value: string): string | null {
 
 const Project = () => {
   const [mqttOpen, setMqttOpen] = useState(false)
+  const [mqttDeviceOpen, setMqttDeviceOpen] = useState<string | null>(null)
   const capabilities = useCapabilities()
   const projectPort = useProject()
   const { toast } = useToast()
   const {
     project: {
-      data: { pous, dataTypes, globalVariableLists, configurations, servers, remoteDevices },
+      data: { pous, dataTypes, globalVariableLists, configurations, servers, remoteDevices, mqtt },
       meta: { name, type: projectType, path: projectPath },
     },
     projectActions: { updateMetaName },
@@ -91,7 +92,7 @@ const Project = () => {
   // Present its settings under Remote Devices without migrating the project
   // schema or confusing it with address-producing Modbus/EtherCAT devices.
   // Keep the entry reachable even when no remote I/O device has been added.
-  const showMqtt = projectCaps.hasRemoteDevices && projectCaps.hasResource
+  const showLegacyMqtt = projectCaps.hasRemoteDevices && projectCaps.hasResource && mqtt !== undefined
 
   // Get VPP vendor screens from the currently selected board
   const deviceBoard = useOpenPLCStore((s) => s.deviceDefinitions.configuration.deviceBoard)
@@ -579,9 +580,9 @@ const Project = () => {
               target that cannot host remote I/O. MQTT is a project-scoped
               broker configuration that also belongs in this category; it
               remains accessible even with no Modbus/EtherCAT devices. */}
-          {projectCaps.hasRemoteDevices && (canHostRemoteIo || (remoteDevices?.length ?? 0) > 0 || showMqtt) && (
-            <ProjectTreeBranch branchTarget='remote-device' hasStaticChild={showMqtt}>
-              {showMqtt && (
+          {projectCaps.hasRemoteDevices && (canHostRemoteIo || (remoteDevices?.length ?? 0) > 0 || showLegacyMqtt) && (
+            <ProjectTreeBranch branchTarget='remote-device' hasStaticChild={showLegacyMqtt}>
+              {showLegacyMqtt && (
                 <li className='list-none'>
                   <button
                     type='button'
@@ -591,7 +592,7 @@ const Project = () => {
                     onClick={() => setMqttOpen(true)}
                   >
                     <RemoteDeviceIcon aria-hidden='true' className='flex-shrink-0' />
-                    <span>MQTT</span>
+                    <span>MQTT (legacy)</span>
                   </button>
                 </li>
               )}
@@ -689,6 +690,15 @@ const Project = () => {
                         )
                       })}
                     </ProjectTreeExpandableLeaf>
+                  ) : device.protocol === 'mqtt' ? (
+                    <ProjectTreeLeaf
+                      key={device.name}
+                      leafLang='remoteDevice'
+                      leafType='remote-device'
+                      label={device.name}
+                      highlightQuery={searchQuery}
+                      onClick={() => setMqttDeviceOpen(device.name)}
+                    />
                   ) : (
                     <ProjectTreeLeaf
                       key={device.name}
@@ -711,6 +721,13 @@ const Project = () => {
         </ProjectTreeRoot>
       </div>
       {mqttOpen && <MqttEditor key={projectPath} onClose={() => setMqttOpen(false)} />}
+      {mqttDeviceOpen && (
+        <MqttEditor
+          key={`${projectPath}/${mqttDeviceOpen}`}
+          deviceName={mqttDeviceOpen}
+          onClose={() => setMqttDeviceOpen(null)}
+        />
+      )}
     </div>
   )
 }

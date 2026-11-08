@@ -6,13 +6,20 @@ import { emptyMqtt, MQTT_TYPES, type MqttConfig, MqttSchema } from '@root/middle
 import { collectVisuSymbols } from '@root/middleware/shared/targetvisu/symbols'
 import { useMemo, useState } from 'react'
 
-export function MqttEditor({ onClose }: { onClose: () => void }) {
+export function MqttEditor({ onClose, deviceName }: { onClose: () => void; deviceName?: string }) {
   const project = useOpenPLCStore((s) => s.project)
   const compileReady = useOpenPLCStore((s) => s.projectActions.getCompileReadyProjectData)
   const update = useOpenPLCStore((s) => s.projectActions.updateMqtt)
+  const updateDevice = useOpenPLCStore((s) => s.projectActions.updateRemoteDeviceMqtt)
   const markDirty = useOpenPLCStore((s) => s.workspaceActions.setEditingState)
   const canEdit = useOpenPLCStore((s) => s.workspace.canEdit)
-  const [draft, setDraft] = useState<MqttConfig>(() => structuredClone(project.data.mqtt ?? emptyMqtt()))
+  const [draft, setDraft] = useState<MqttConfig>(() =>
+    structuredClone(
+      deviceName
+        ? project.data.remoteDevices?.find((device) => device.name === deviceName && device.protocol === 'mqtt')?.mqttConfig ?? emptyMqtt()
+        : project.data.mqtt ?? emptyMqtt(),
+    ),
+  )
   const [error, setError] = useState('')
   const symbols = useMemo(
     () =>
@@ -39,7 +46,9 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
           aria-label='MQTT data source'
           className='fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[95vw] max-w-6xl -translate-x-1/2 -translate-y-1/2 overflow-auto rounded bg-white p-6 text-sm text-neutral-900 shadow-xl dark:bg-neutral-950 dark:text-neutral-100'
         >
-          <Dialog.Title className='mb-3 text-lg font-semibold'>MQTT — PLC variables</Dialog.Title>
+          <Dialog.Title className='mb-3 text-lg font-semibold'>
+            MQTT — {deviceName ?? 'Legacy connection'}
+          </Dialog.Title>
           <Dialog.Description className='mb-3'>
             Runtime v4 · MQTT 3.1.1 · exact topics · scalar values or JSON fields. Subscriptions keep the last value on
             disconnect; the PLC program can overwrite it.
@@ -270,7 +279,15 @@ export function MqttEditor({ onClose }: { onClose: () => void }) {
                   setError('Add at least one binding')
                   return
                 }
-                update(parsed.data)
+                if (deviceName) {
+                  const result = updateDevice(deviceName, parsed.data)
+                  if (!result.ok) {
+                    setError(result.message ?? 'MQTT device no longer exists')
+                    return
+                  }
+                } else {
+                  update(parsed.data)
+                }
                 markDirty('unsaved')
                 onClose()
               }}
