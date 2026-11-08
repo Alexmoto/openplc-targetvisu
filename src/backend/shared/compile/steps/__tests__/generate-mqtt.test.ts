@@ -134,7 +134,7 @@ test('rejects multiple brokers writing the same PLC variable', () => {
   const { project, map } = fixture()
   project.mqtt = undefined
   project.remoteDevices = ['A', 'B'].map((name) => ({
-    name, protocol: 'mqtt',
+    name, protocol: 'mqtt' as const,
     mqttConfig: { ...emptyMqtt(), enabled: true, bindings: [
       { ...binding, id: name, topic: `sensor/${name}` },
     ] },
