@@ -596,7 +596,8 @@ async function runCompilePipelineInner(
   // Whether this build COMPILES the server into firmware macros. The simulator
   // and the openplc-compiler runtimes do not, so narrowing their transports
   // would warn about a macro nothing reads.
-  if (projectData.mqtt?.enabled && !isRuntimeV4) return bailError(emit, 'confs', 'MQTT requires OpenPLC Runtime v4')
+  if ((projectData.mqtt?.enabled ||
+    projectData.remoteDevices?.some((device) => device.protocol === 'mqtt' && device.mqttConfig?.enabled)) && !isRuntimeV4) return bailError(emit, 'confs', 'MQTT requires OpenPLC Runtime v4')
   const targetServesOneSlave = !isRuntimeV4 && !isSimulator && boardRuntime !== 'openplc-compiler'
   // Whether exactly one slave configuration reaches the device, by whichever
   // route: Runtime v4 ships `conf/modbus_slave.json`, bare metal ships macros.

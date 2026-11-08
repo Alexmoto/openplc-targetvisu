@@ -22,11 +22,38 @@ const widths: Record<string, number> = {
   LREAL: 8,
 }
 
-/** Resolve against this build's canonical map, never a cached editor/debugger address. */
+/** Resolve against this build's canonical map, never a cached debugger address. */
 export function generateMqttConfig(project: PLCProjectData, debugMap: string, md5: string): string | undefined {
-  if (!project.mqtt?.enabled) return undefined
-  const config = MqttSchema.parse(project.mqtt)
-  if (!config.bindings.length) throw new Error('MQTT: add at least one binding')
+  const legacy = project.mqtt?.enabled
+    ? [{ name: 'Legacy MQTT', config: MqttSchema.parse(project.mqtt), legacy: true }]
+    : []
+  const remote = (project.remoteDevices ?? [])
+    .filter((device) => device.protocol === 'mqtt' && device.mqttConfig?.enabled)
+    .map((device) => ({
+      name: device.name,
+      config: MqttSchema.parse(device.mqttConfig),
+      legacy: false,
+    }))
+  const sources = [...legacy, ...remote]
+  if (!sources.length) return undefined
+  if (sources.length > 8) throw new Error('MQTT: maximum 8 enabled broker connections')
+  const names = new Set<string>()
+  const clientIds = new Set<string>()
+  let bindingCount = 0
+  for (const source of sources) {
+    if (names.has(source.name.toLowerCase())) throw new Error(`MQTT: duplicate device name ${source.name}`)
+    names.add(source.name.toLowerCase())
+    if (!source.config.bindings.length) throw new Error(`MQTT: add at least one binding for ${source.name}`)
+    bindingCount += source.config.bindings.length
+    if (bindingCount > 256) throw new Error('MQTT: maximum 256 bindings across devices')
+    const { host, port, clientId } = source.config
+    if (clientId) {
+      const key = JSON.stringify([host.toLowerCase(), port, clientId])
+      if (clientIds.has(key)) throw new Error(`MQTT: duplicate client ID on broker ${host}:${port}`)
+      clientIds.add(key)
+    }
+  }
+
   const mapResult = z
     .object({
       version: z.literal(2),
@@ -38,13 +65,9 @@ export function generateMqttConfig(project: PLCProjectData, debugMap: string, md
     .safeParse(JSON.parse(debugMap) as unknown)
   if (!mapResult.success) throw new Error('MQTT: invalid compiled map')
   const map = mapResult.data
-  if (
-    map.version !== 2 ||
-    !/^[a-f0-9]{32}$/i.test(md5) ||
-    map.md5?.toLowerCase() !== md5.toLowerCase() ||
-    !Array.isArray(map.leaves)
-  )
+  if (!/^[a-f0-9]{32}$/i.test(md5) || map.md5.toLowerCase() !== md5.toLowerCase())
     throw new Error('MQTT: compiled map / program mismatch')
+
   const writable = new Map<string, boolean>()
   const add = (prefix: string, variables: PLCProjectData['pous'][number]['data']['variables'], constant = false) => {
     for (const v of variables) {
@@ -55,36 +78,56 @@ export function generateMqttConfig(project: PLCProjectData, debugMap: string, md
   }
   add('', project.configuration.resource.globalVariables as PLCProjectData['pous'][number]['data']['variables'])
   for (const gvl of project.globalVariableLists ?? [])
-    add(`${gvl.name}.`, gvl.variables, /\bCONSTANT\b/i.test(gvl.qualifier ?? ''))
+    add(`${gvl.name}.`, gvl.variables, /\\bCONSTANT\\b/i.test(gvl.qualifier ?? ''))
   for (const instance of project.configuration.resource.instances) {
     const pou = project.pous.find(
       (p) => p.type === 'program' && p.data.name.toLowerCase() === instance.program.toLowerCase(),
     )
     if (pou) add(`${instance.name}.`, pou.data.variables)
   }
-  const bindings = config.bindings.map((binding) => {
-    const matches = map.leaves.filter(
-      (leaf: { path: string }) => leaf.path.toLowerCase() === binding.variable.toLowerCase(),
-    )
-    if (matches.length !== 1) throw new Error(`MQTT: unresolved or ambiguous variable ${binding.variable}`)
-    const leaf = matches[0],
-      type = String(leaf.type).toUpperCase()
-    if (
-      !widths[type] ||
-      leaf.size !== widths[type] ||
-      !Number.isInteger(leaf.arrayIdx) ||
-      leaf.arrayIdx < 0 ||
-      leaf.arrayIdx > 255 ||
-      !Number.isInteger(leaf.elemIdx) ||
-      leaf.elemIdx < 0 ||
-      leaf.elemIdx > 65535
-    )
-      throw new Error(`MQTT: unsupported variable ${binding.variable}`)
-    if (binding.direction === 'subscribe' && writable.get(binding.variable.toLowerCase()) !== true)
-      throw new Error(
-        `MQTT: subscription requires a non-constant scalar variable without an I/O address: ${binding.variable}`,
+
+  // One PLC variable must not have two remote publishers writing into it.
+  const claimedInputs = new Set<string>()
+  const connections = sources.map(({ name, config }) => {
+    const bindings = config.bindings.map((binding) => {
+      const matches = map.leaves.filter((leaf) => leaf.path.toLowerCase() === binding.variable.toLowerCase())
+      if (matches.length !== 1)
+        throw new Error(`MQTT [${name}]: unresolved or ambiguous variable ${binding.variable}`)
+      const leaf = matches[0]
+      const type = String(leaf.type).toUpperCase()
+      if (
+        !widths[type] ||
+        leaf.size !== widths[type] ||
+        !Number.isInteger(leaf.arrayIdx) ||
+        leaf.arrayIdx < 0 ||
+        leaf.arrayIdx > 255 ||
+        !Number.isInteger(leaf.elemIdx) ||
+        leaf.elemIdx < 0 ||
+        leaf.elemIdx > 65535
       )
-    return { ...binding, variable: leaf.path, type, size: leaf.size, arr: leaf.arrayIdx, elem: leaf.elemIdx }
+        throw new Error(`MQTT [${name}]: unsupported variable ${binding.variable}`)
+      if (binding.direction === 'subscribe') {
+        if (writable.get(binding.variable.toLowerCase()) !== true)
+          throw new Error(
+            `MQTT: subscription requires a non-constant scalar variable without an I/O address: ${binding.variable}`,
+          )
+        const key = `${leaf.arrayIdx}:${leaf.elemIdx}`
+        if (claimedInputs.has(key))
+          throw new Error(`MQTT: multiple broker subscriptions target variable ${leaf.path}`)
+        claimedInputs.add(key)
+      }
+      return { ...binding, variable: leaf.path, type, size: leaf.size, arr: leaf.arrayIdx, elem: leaf.elemIdx }
+    })
+    return { ...config, name, bindings }
   })
-  return JSON.stringify({ ...config, version: 1, programMd5: md5.toLowerCase(), bindings }, null, 2)
+
+  if (sources.length === 1 && sources[0].legacy)
+    return JSON.stringify({ ...connections[0], version: 1, programMd5: md5.toLowerCase() }, null, 2)
+
+  return JSON.stringify({
+    version: 2,
+    enabled: true,
+    programMd5: md5.toLowerCase(),
+    connections,
+  }, null, 2)
 }
