@@ -3,7 +3,7 @@ import type { ReactElement } from 'react'
 
 import type { OpenPLCStore } from '../../../../store'
 import { createStoreWrapper, createTestStore } from '../../../../store/testing'
-import { ProjectTreeExpandableLeaf, ProjectTreeLeaf } from '../index'
+import { ProjectTreeBranch, ProjectTreeExpandableLeaf, ProjectTreeLeaf } from '../index'
 
 // https://github.com/Autonomy-Logic/openplc-editor/issues/640
 // The explorer used to pass a search-highlight HTML string as the leaf `label`,
@@ -77,5 +77,26 @@ describe('ProjectTreeLeaf search highlight', () => {
     expect(container.textContent).not.toContain('<span')
     const highlight = container.querySelector('span.bg-brand-light')
     expect(highlight?.textContent).toBe('Ether')
+  })
+})
+
+
+describe('Remote Devices project tree', () => {
+  beforeEach(() => {
+    store = createTestStore()
+  })
+
+  it('expands a branch containing only the fixed MQTT settings entry', () => {
+    render(
+      <ProjectTreeBranch branchTarget='remote-device' hasStaticChild>
+        <li><button type='button'>MQTT</button></li>
+      </ProjectTreeBranch>,
+    )
+    const branch = screen.getByText('Remote Devices').closest('li')
+    expect(branch).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('button', { name: 'MQTT' })).toBeInTheDocument()
+    fireEvent.click(screen.getByText('Remote Devices'))
+    expect(branch).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('button', { name: 'MQTT' })).not.toBeInTheDocument()
   })
 })

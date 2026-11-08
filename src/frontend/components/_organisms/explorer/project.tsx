@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { projectCapabilities } from '../../../../middleware/shared/ports/types'
 import { useCapabilities, useProject } from '../../../../middleware/shared/providers'
 import { FolderIcon } from '../../../assets/icons/interface/Folder'
+import { RemoteDeviceIcon } from '../../../assets/icons/project/RemoteDevice'
 import { useTargetCapabilities } from '../../../hooks/use-target-capabilities'
 import { useOpenPLCStore } from '../../../store'
 import type { TabsProps } from '../../../store/slices/tabs'
@@ -85,6 +86,12 @@ const Project = () => {
   // behind this exact predicate.
   const targetCaps = useTargetCapabilities()
   const canHostRemoteIo = targetCaps.modbusTcpRemote || targetCaps.ethercat
+
+  // MQTT currently uses one project-scoped broker connection (project.data.mqtt).
+  // Present its settings under Remote Devices without migrating the project
+  // schema or confusing it with address-producing Modbus/EtherCAT devices.
+  // Keep the entry reachable even when no remote I/O device has been added.
+  const showMqtt = projectCaps.hasRemoteDevices && projectCaps.hasResource
 
   // Get VPP vendor screens from the currently selected board
   const deviceBoard = useOpenPLCStore((s) => s.deviceDefinitions.configuration.deviceBoard)
@@ -414,15 +421,6 @@ const Project = () => {
             </li>
           )}
 
-          {projectCaps.hasResource && (
-            <li className='list-none'>
-              <button type='button' className='w-full px-8 py-2 text-left text-xs' onClick={() => setMqttOpen(true)}>
-                MQTT
-              </button>
-              {mqttOpen && <MqttEditor key={projectPath} onClose={() => setMqttOpen(false)} />}
-            </li>
-          )}
-
           {/* Project Resources tree branch — hidden for libraries. */}
           {projectCaps.hasResource && (
             <ProjectTreeBranch
@@ -576,14 +574,27 @@ const Project = () => {
             </ProjectTreeBranch>
           )}
 
-          {/* Project Remote Devices tree branch — hidden for libraries, and on
-              a target that can host neither Modbus remote I/O nor EtherCAT.
-              Devices already configured stay visible on such a target: the
-              board-switch warning promises they are "disabled during
-              compilation", not removed, so hiding saved data would contradict
-              what the user just accepted. */}
-          {projectCaps.hasRemoteDevices && (canHostRemoteIo || (remoteDevices?.length ?? 0) > 0) && (
-            <ProjectTreeBranch branchTarget='remote-device'>
+          {/* Project Remote Devices tree branch — hidden for libraries.
+              Modbus/EtherCAT devices remain visible after switching to a
+              target that cannot host remote I/O. MQTT is a project-scoped
+              broker configuration that also belongs in this category; it
+              remains accessible even with no Modbus/EtherCAT devices. */}
+          {projectCaps.hasRemoteDevices && (canHostRemoteIo || (remoteDevices?.length ?? 0) > 0 || showMqtt) && (
+            <ProjectTreeBranch branchTarget='remote-device' hasStaticChild={showMqtt}>
+              {showMqtt && (
+                <li className='list-none'>
+                  <button
+                    type='button'
+                    aria-label='MQTT settings'
+                    data-testid='remote-devices-mqtt'
+                    className='flex w-full items-center gap-1 py-1 pl-[58px] text-left font-caption text-xs text-neutral-850 hover:bg-slate-50 dark:text-neutral-300 dark:hover:bg-neutral-900'
+                    onClick={() => setMqttOpen(true)}
+                  >
+                    <RemoteDeviceIcon aria-hidden='true' className='flex-shrink-0' />
+                    <span>MQTT</span>
+                  </button>
+                </li>
+              )}
               {[...(remoteDevices || [])]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((device) =>
@@ -699,6 +710,7 @@ const Project = () => {
           )}
         </ProjectTreeRoot>
       </div>
+      {mqttOpen && <MqttEditor key={projectPath} onClose={() => setMqttOpen(false)} />}
     </div>
   )
 }
