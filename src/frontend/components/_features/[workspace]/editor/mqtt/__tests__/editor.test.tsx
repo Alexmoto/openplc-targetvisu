@@ -92,3 +92,32 @@ test('supports per-binding interval and refuses an invalid interval', () => {
   const saved = JSON.parse(buildAllProjectFileContentsPure(store)['project.json'])
   expect(saved.data.mqtt.bindings[0].publishIntervalMs).toBe(2000)
 })
+
+test('named MQTT remote device settings persist in a separate device file', () => {
+  const store = createTestStore()
+  store.setState((s) => ({ ...s, workspace: { ...s.workspace, canEdit: true } }))
+  const created = store.getState().remoteDeviceActions.create({ name: 'BoilerMQTT', protocol: 'mqtt' })
+  expect(created.ok).toBe(true)
+  const initial = store.getState().project.data.remoteDevices?.find((d) => d.name === 'BoilerMQTT')
+  expect(initial?.mqttConfig?.enabled).toBe(false)
+  const close = jest.fn()
+  render(<MqttEditor deviceName='BoilerMQTT' onClose={close} />, { wrapper: createStoreWrapper(store) })
+  fireEvent.change(screen.getByLabelText('Broker host'), { target: { value: '192.168.1.35' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Add binding' }))
+  fireEvent.change(screen.getByLabelText('Variable 1'), { target: { value: 'INSTANCE0.CURRTEMP' } })
+  fireEvent.change(screen.getByLabelText('Topic 1'), { target: { value: 'tele/tasmota222/SENSOR' } })
+  fireEvent.change(screen.getByLabelText('JSON pointer 1'), { target: { value: '/OPENTHERM/BTMP/ACT' } })
+  fireEvent.click(screen.getByLabelText('Enable MQTT'))
+  fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  expect(close).toHaveBeenCalled()
+  const saved = buildAllProjectFileContentsPure(store)
+  const device = JSON.parse(saved['devices/remote/BoilerMQTT.json'])
+  expect(device).toMatchObject({ name: 'BoilerMQTT', protocol: 'mqtt',
+    mqttConfig: { enabled: true, host: '192.168.1.35', bindings: [
+      { variable: 'INSTANCE0.CURRTEMP', jsonPointer: '/OPENTHERM/BTMP/ACT' },
+    ] } })
+  const reloaded = parseProjectFiles('/demo', saved['project.json'],
+    saved['devices/configuration.json'], saved['devices/pin-mapping.json'],
+    [], [], [{ relativePath: 'devices/remote/BoilerMQTT.json', content: saved['devices/remote/BoilerMQTT.json'] }])
+  expect(reloaded.projectData.remoteDevices?.[0].mqttConfig?.host).toBe('192.168.1.35')
+})

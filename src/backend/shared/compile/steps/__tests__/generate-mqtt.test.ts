@@ -97,3 +97,71 @@ test('rejects publish policies on subscriptions and invalid publish intervals', 
       publishMode: 'interval', publishIntervalMs: 50 }],
   }).success).toBe(false)
 })
+
+test('compiles separate MQTT remote devices into independent v2 broker connections', () => {
+  const { project, map } = fixture()
+  project.mqtt = undefined
+  project.remoteDevices = [
+    {
+      name: 'Boiler',
+      protocol: 'mqtt',
+      mqttConfig: { ...emptyMqtt(), enabled: true, host: '192.168.1.35', bindings: [
+        { ...binding, id: 't1', topic: 'tele/boiler/SENSOR' },
+      ] },
+    },
+    {
+      name: 'Workshop',
+      protocol: 'mqtt',
+      mqttConfig: { ...emptyMqtt(), enabled: true, host: 'broker-workshop', clientId: 'workshop-plc', bindings: [
+        { ...binding, id: 'set', direction: 'publish', topic: 'cmnd/workshop/set',
+          jsonPointer: '', publishMode: 'on-change' },
+      ] },
+    },
+  ]
+  const out = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(out.version).toBe(2)
+  expect(out.connections).toHaveLength(2)
+  expect(out.connections.map((c: { name: string }) => c.name)).toEqual(['Boiler', 'Workshop'])
+  expect(out.connections[0].host).toBe('192.168.1.35')
+  expect(out.connections[1].clientId).toBe('workshop-plc')
+  expect(out.connections[1].bindings[0]).toMatchObject({
+    type: 'REAL', arr: 3, elem: 8, direction: 'publish', publishMode: 'on-change',
+  })
+  expect(out.programMd5).toBe(md5)
+})
+
+test('rejects multiple brokers writing the same PLC variable', () => {
+  const { project, map } = fixture()
+  project.mqtt = undefined
+  project.remoteDevices = ['A', 'B'].map((name) => ({
+    name, protocol: 'mqtt',
+    mqttConfig: { ...emptyMqtt(), enabled: true, bindings: [
+      { ...binding, id: name, topic: `sensor/${name}` },
+    ] },
+  }))
+  expect(() => generateMqttConfig(project, JSON.stringify(map), md5)).toThrow('multiple broker subscriptions')
+})
+
+test('keeps v1 legacy config and supports legacy alongside a named broker', () => {
+  const { project, map } = fixture()
+  let cfg = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(cfg.version).toBe(1)
+  expect(cfg.bindings).toHaveLength(1)
+  project.remoteDevices = [{
+    name: 'Second',
+    protocol: 'mqtt',
+    mqttConfig: { ...emptyMqtt(), enabled: true, host: 'other', bindings: [
+      { ...binding, id: 'p', direction: 'publish', topic: 'plc/out', jsonPointer: '' },
+    ] },
+  }]
+  cfg = JSON.parse(generateMqttConfig(project, JSON.stringify(map), md5)!)
+  expect(cfg.version).toBe(2)
+  expect(cfg.connections.map((c: { name: string }) => c.name)).toEqual(['Legacy MQTT', 'Second'])
+})
+
+test('ignores disabled MQTT remote devices', () => {
+  const { project, map } = fixture()
+  project.mqtt = undefined
+  project.remoteDevices = [{ name: 'Unused', protocol: 'mqtt', mqttConfig: emptyMqtt() }]
+  expect(generateMqttConfig(project, JSON.stringify(map), md5)).toBeUndefined()
+})
