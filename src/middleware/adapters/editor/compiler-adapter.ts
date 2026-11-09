@@ -45,6 +45,7 @@ import { compileProgramFlow } from './compile-program-flow'
  * error. Adding a field to the project model means adding it here too.
  */
 export interface IpcProjectData {
+  mqtt?: PLCProjectData['mqtt']
   targetVisu?: PLCProjectData['targetVisu']
   dataTypes: PLCProjectData['dataTypes']
   globalVariableLists?: PLCProjectData['globalVariableLists']
@@ -85,6 +86,7 @@ function portPouToIpcPou(pou: PLCPou) {
 // shape). Skipping any step compiles a different program from the same sources.
 function toIpcProjectData(data: PLCProjectData & { originalCppPous?: unknown[] }): IpcProjectData {
   return {
+    mqtt: data.mqtt,
     targetVisu: data.targetVisu,
     dataTypes: data.dataTypes,
     // Without this the main process never sees a Global Variable List, and every

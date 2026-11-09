@@ -86,6 +86,7 @@ interface IpcProjectResponse {
           configuration: { resource: { tasks: PLCTask[]; instances: PLCInstance[]; globalVariables: PLCVariable[] } }
           servers?: unknown[]
           remoteDevices?: unknown[]
+          mqtt?: PLCProjectData['mqtt']
           targetVisu?: PLCProjectData['targetVisu']
           debugVariables?: { global?: string[]; pous?: Record<string, string[]> }
         }
@@ -174,6 +175,7 @@ function mapIpcResponse(
         configurations: configuration,
         servers: content.project.data.servers as PLCProjectData['servers'],
         remoteDevices: content.project.data.remoteDevices as PLCProjectData['remoteDevices'],
+        mqtt: content.project.data.mqtt,
         targetVisu: content.project.data.targetVisu,
         // Defensive default: legacy projects on disk have no
         // `libraries` field; the schema's `default([])` covers parsed

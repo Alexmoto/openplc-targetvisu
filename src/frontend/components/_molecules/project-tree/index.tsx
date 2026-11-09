@@ -99,6 +99,8 @@ type ProjectTreeBranchProps = ComponentPropsWithoutRef<'li'> & {
     | 'server'
     | 'remote-device'
   children?: ReactNode
+  /** Include fixed project-scoped entries such as the singleton MQTT settings. */
+  hasStaticChild?: boolean
 }
 
 const BranchSources = {
@@ -115,7 +117,7 @@ const BranchSources = {
   server: { BranchIcon: ServerIcon, label: 'Servers' },
   'remote-device': { BranchIcon: RemoteDeviceIcon, label: 'Remote Devices' },
 }
-const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranchProps) => {
+const ProjectTreeBranch = ({ branchTarget, children, hasStaticChild = false, ...res }: ProjectTreeBranchProps) => {
   const {
     project: {
       data: { pous, dataTypes, globalVariableLists, servers, remoteDevices },
@@ -131,7 +133,8 @@ const ProjectTreeBranch = ({ branchTarget, children, ...res }: ProjectTreeBranch
     (branchTarget === 'data-type' && dataTypes.length > 0) ||
     (branchTarget === 'global-variable-list' && (globalVariableLists?.length ?? 0) > 0) ||
     (branchTarget === 'server' && servers !== undefined && servers.length > 0) ||
-    (branchTarget === 'remote-device' && remoteDevices !== undefined && remoteDevices.length > 0)
+    (branchTarget === 'remote-device' && remoteDevices !== undefined && remoteDevices.length > 0) ||
+    hasStaticChild
   useEffect(() => setBranchIsOpen(hasAssociatedPou), [hasAssociatedPou])
 
   const { file: associatedFile } = getFile({ name: label || '' })

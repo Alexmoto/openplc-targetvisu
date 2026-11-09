@@ -45,6 +45,7 @@
  */
 
 export interface ComposeRuntimeV4BundleInput {
+  mqtt?: string
   targetVisu?: { document: string; deployment: string }
   /** Concatenated ST program emitted by the ST transpiler. */
   programSt: string
@@ -151,6 +152,7 @@ export function composeRuntimeV4Bundle(input: ComposeRuntimeV4BundleInput): Reco
   if (input.confs.ethercatBusconfig) files['conf/ethercat_busconfig.json'] = input.confs.ethercatBusconfig
   if (input.confs.ethercatIomapping) files['conf/ethercat_iomapping.json'] = input.confs.ethercatIomapping
 
+  if (input.mqtt) files['conf/mqtt.json'] = input.mqtt
   if (input.targetVisu) {
     files['conf/targetvisu.json'] = input.targetVisu.document
     files['conf/targetvisu-project.json'] = input.targetVisu.deployment

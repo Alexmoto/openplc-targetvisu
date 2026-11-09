@@ -104,6 +104,7 @@ export type ProjectResponse = {
 export type ProjectActions = {
   // Project state
   setProject: (state: ProjectState) => void
+  updateMqtt: (config: import('../../../../middleware/shared/mqtt/model').MqttConfig) => void
   updateTargetVisu: (document: import('../../../../middleware/shared/targetvisu/model').TargetVisuDocument) => void
   setPous: (pous: PLCProjectData['pous']) => void
   clearProjects: () => void
@@ -383,6 +384,10 @@ export type ProjectActions = {
   createRemoteDevice: (dto: RemoteDeviceDTO) => ProjectResponse
   deleteRemoteDevice: (name: string) => ProjectResponse
   updateRemoteDeviceName: (name: string, newName: string) => ProjectResponse
+  updateRemoteDeviceMqtt: (
+    name: string,
+    config: import('../../../../middleware/shared/mqtt/model').MqttConfig,
+  ) => ProjectResponse
   updateRemoteDeviceConfig: (
     name: string,
     config: {

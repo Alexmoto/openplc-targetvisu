@@ -80,6 +80,7 @@ function buildProjectJsonContent(state: StoreState): string {
         configuration: project.data.configurations,
         libraries,
         debugVariables,
+        ...(project.data.mqtt ? { mqtt: project.data.mqtt } : {}),
         ...(project.data.targetVisu ? { targetVisu: project.data.targetVisu } : {}),
       },
     },

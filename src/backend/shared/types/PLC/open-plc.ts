@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { MqttSchema } from '../../../../middleware/shared/mqtt/model'
 import { zodFBDFlowSchema, zodLadderFlowSchema } from '../../../../middleware/shared/ports/flow-schemas'
 // One source of truth for the IEC base-type list: the canonical
 // schema lives in `middleware/shared/ports/plc-schemas` and is
@@ -705,7 +706,7 @@ const ModbusTcpConfigSchema = z.object({
 })
 type ModbusTcpConfig = z.infer<typeof ModbusTcpConfigSchema>
 
-const PLCRemoteDeviceProtocolSchema = z.enum(['modbus-tcp', 'ethernet-ip', 'ethercat', 'profinet'])
+const PLCRemoteDeviceProtocolSchema = z.enum(['modbus-tcp', 'ethernet-ip', 'ethercat', 'profinet', 'mqtt'])
 type PLCRemoteDeviceProtocol = z.infer<typeof PLCRemoteDeviceProtocolSchema>
 
 // ---- EtherCAT Configuration Schemas ----
@@ -947,6 +948,7 @@ const PLCRemoteDeviceSchema = z.object({
   protocol: PLCRemoteDeviceProtocolSchema,
   modbusTcpConfig: ModbusTcpConfigSchema.optional(),
   ethercatConfig: EthercatConfigSchema.optional(),
+  mqttConfig: MqttSchema.optional(),
 })
 type PLCRemoteDevice = z.infer<typeof PLCRemoteDeviceSchema>
 
@@ -1008,6 +1010,7 @@ const PLCGlobalVariableListSchema = z.object({
 })
 
 const PLCProjectDataSchema = z.object({
+  mqtt: MqttSchema.optional(),
   targetVisu: TargetVisuSchema.optional(),
   // Defaulted: once data types live in datatypes/<Name>.dt files the
   // field disappears from newly-written project.json (DOPE-385);

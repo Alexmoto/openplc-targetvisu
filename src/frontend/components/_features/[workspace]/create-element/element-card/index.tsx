@@ -49,7 +49,7 @@ type CreateServerFormProps = {
 
 type CreateRemoteDeviceFormProps = {
   name: string
-  protocol: 'modbus-tcp' | 'ethernet-ip' | 'ethercat' | 'profinet'
+  protocol: 'modbus-tcp' | 'ethernet-ip' | 'ethercat' | 'profinet' | 'mqtt'
 }
 
 const ServerProtocolSources = [
@@ -63,6 +63,7 @@ const RemoteDeviceProtocolSources = [
   { value: 'modbus-tcp', label: 'Modbus', disabled: false },
   { value: 'ethernet-ip', label: 'EtherNet/IP', disabled: true },
   { value: 'ethercat', label: 'EtherCAT', disabled: false },
+  { value: 'mqtt', label: 'MQTT', disabled: false },
   { value: 'profinet', label: 'PROFINET', disabled: true },
 ] as const
 
@@ -726,7 +727,7 @@ const ElementCard = (props: ElementCardProps): ReactNode => {
                                           'flex w-full items-center px-2 py-[9px] outline-none',
                                         )}
                                         value={protocol.value}
-                                        disabled={protocol.disabled}
+                                        disabled={protocol.disabled || (protocol.value === 'mqtt' && !isRuntimeV4)}
                                       >
                                         <span className='flex items-center gap-2 font-caption text-cp-sm font-medium text-neutral-850 dark:text-neutral-300'>
                                           {protocol.label}
