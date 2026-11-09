@@ -325,3 +325,15 @@ it('renders all 12 indicator lamps by INT value and hides the entire indicator a
   expect(screen.queryByTestId('element-lamp')).toBeNull()
   expect(doc().screens[0].elements[0].indicatorStyle).toBe('lamp12')
 })
+
+it('creates a Trend with configured curves and preview', () => {
+  render(<Harness />)
+  fireEvent.click(screen.getByRole('button', { name: 'Create screen' }))
+  fireEvent.click(screen.getByRole('button', { name: '+ Trend' }))
+  expect(screen.getByLabelText('Trend properties')).toBeTruthy()
+  fireEvent.click(screen.getByRole('button', { name: '+ Add curve' }))
+  expect(doc().screens[0].elements[0].trend?.series[0].path).toBe('Pump.Pressure')
+  fireEvent.change(screen.getByLabelText('Trend history window'), { target: { value: '3600' } })
+  expect(doc().screens[0].elements[0].trend?.sampleMs).toBe(10000)
+  expect(screen.getByLabelText('Trend preview')).toBeTruthy()
+})
