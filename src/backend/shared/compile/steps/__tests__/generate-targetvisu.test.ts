@@ -265,3 +265,23 @@ test('example Modbus100Lamps project contains exactly 100 bound indicators drive
   expect(JSON.parse(bundle.document).screens[0].elements).toHaveLength(101)
   expect(JSON.parse(bundle.deployment).writableSymbols).toEqual([])
 })
+
+test('Trend includes compiled numeric curve paths without granting PLC write access', async () => {
+  const { project, map } = fixture()
+  project.configuration.resource.globalVariables.push({
+    name: 'Temperature',
+    type: { definition: 'base-type', value: 'REAL' },
+    documentation: '',
+    location: '',
+  })
+  map.leaves.push({ path: 'Temperature', type: 'REAL', size: 4, arrayIdx: 0, elemIdx: 1 })
+  const trend = newElement('trend', 'temperature-trend')
+  trend.trend!.series.push({ path: 'Temperature', color: '#16a34a', label: 'Temperature' })
+  project.targetVisu!.screens[0].elements = [trend]
+  const result = (await generateTargetVisuBundle(project, JSON.stringify(map), md5, hash))!
+  expect(JSON.parse(result.deployment).writableSymbols).toEqual([])
+  expect(JSON.parse(result.document).screens[0].elements[0].trend.series[0].path).toBe('Temperature')
+  trend.trend!.series[0].path = 'Run'
+  await expect(generateTargetVisuBundle(project, JSON.stringify(map), md5, hash))
+    .rejects.toThrow('Trend requires numeric PLC variable')
+})
