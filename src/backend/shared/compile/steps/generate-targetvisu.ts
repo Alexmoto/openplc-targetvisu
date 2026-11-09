@@ -73,6 +73,8 @@ export async function generateTargetVisuBundle(
   for (const screen of document.screens)
     for (const element of screen.elements) {
       for (const path of Object.values(element.bindings)) if (path) used.add(path.toLowerCase())
+      if (element.kind === 'trend')
+        for (const series of element.trend?.series ?? []) used.add(series.path.toLowerCase())
       if (element.action.kind !== 'none' && element.action.kind !== 'navigate') {
         const key = element.action.target.toLowerCase()
         used.add(key)
