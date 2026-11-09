@@ -236,3 +236,20 @@ it('supports classic BOOL Indicator and a 12-color lamp driven by a PLC integer'
   indicator.kind = 'rectangle'
   expect(validateBindings(doc, withState).join()).toContain('Indicator style can only be set on Indicator')
 })
+
+it('validates numeric trend curves and bounded history', () => {
+  const d = document()
+  const trend = newElement('trend', 'history')
+  d.screens[0].elements = [trend]
+  expect(validateBindings(d, symbols)).toEqual(expect.arrayContaining([expect.stringContaining('at least one curve')]))
+  trend.trend!.series.push({ path: 'main.Temp', color: '#16a34a', label: 'Temperature' })
+  expect(validateBindings(d, symbols)).toEqual([])
+  expect(TargetVisuSchema.parse(d).screens[0].elements[0].trend?.series).toHaveLength(1)
+  trend.trend!.series.push({ path: 'MAIN.temp', color: '#2563eb', label: 'Duplicate' })
+  expect(validateBindings(d, symbols).join(' ')).toMatch(/duplicate Trend curve/)
+  trend.trend!.series[1].path = 'main.Run'
+  expect(validateBindings(d, symbols).join(' ')).toMatch(/requires numeric PLC variable/)
+  trend.trend!.series.pop()
+  trend.trend!.sampleMs = 500
+  expect(() => TargetVisuSchema.parse(d)).toThrow(/600 samples/)
+})
