@@ -5,6 +5,7 @@ import { GraphicProperties } from './graphic-properties'
 import { IndicatorLamp } from './indicator-lamp'
 import { NumberKeypad } from './number-keypad'
 import { ScreenBackgroundProperties } from './screen-background-properties'
+import { TrendPreview, TrendProperties } from './trend-properties'
 import { selectGraphicData } from '../../../../../../middleware/shared/targetvisu/graphics'
 import { LAMP_LABELS, lampState } from '../../../../../../middleware/shared/targetvisu/lamp-palette'
 
@@ -36,6 +37,7 @@ const KINDS: VisuElement['kind'][] = [
   'button',
   'number',
   'graphic',
+  'trend',
 ]
 const clone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const control =
@@ -119,6 +121,7 @@ function RenderElement({
       />
     )
   }
+  if (e.kind === 'trend') return <TrendPreview element={e} />
   if (e.kind === 'graphic') {
     const graphic = e.graphic
     const data = graphic
@@ -617,7 +620,7 @@ export function TargetVisuDesigner({
                 className={`${button} text-left capitalize`}
                 onClick={() => addElement(kind)}
               >
-                + {kind === 'graphic' ? 'Graphic View' : kind}
+                + {kind === 'graphic' ? 'Graphic View' : kind === 'trend' ? 'Trend' : kind}
               </button>
             ))}
           </fieldset>
@@ -1003,7 +1006,11 @@ export function TargetVisuDesigner({
                       onBindingChange={(value) => patchElement({ bindings: { ...current.bindings, value } })}
                     />
                   )}
-                  {current.kind === 'line' && (
+                  {current.kind === 'trend' && (
+                     <TrendProperties key={current.id} element={current} symbols={symbols}
+                       onChange={(trend) => patchElement({ trend })} />
+                   )}
+                   {current.kind === 'line' && (
                     <label className='flex flex-col gap-1'>
                       Line direction
                       <select
@@ -1122,8 +1129,8 @@ export function TargetVisuDesigner({
                           )}
                         </div>
                       )}
-                      {bindSelect(
-                        'Value variable',
+                      {current.kind !== 'trend' && bindSelect(
+                         'Value variable',
                         current.bindings.value,
                         (value) => patchElement({
                           bindings: { ...current.bindings, value },
@@ -1281,9 +1288,9 @@ export function TargetVisuDesigner({
                       )}
                     </>
                   )}
-                  {current.kind === 'number' && (
-                    <>
-                      {numeric('Decimals', current.decimals, (n) => patchElement({ decimals: n }), 0, 6)}
+                  {(current.kind === 'number' || current.kind === 'trend') && (
+                     <>
+                       {current.kind === 'number' && numeric('Decimals', current.decimals, (n) => patchElement({ decimals: n }), 0, 6)}
                       {numeric(
                         'Minimum',
                         current.minimum,
