@@ -9,11 +9,23 @@ const graphicVariant = z.object({
   value: z.number().int().min(-2147483648).max(4294967295),
   data: png.refine((data) => !!graphicDimensions(data), 'Invalid embedded PNG'),
 }).strict()
+export const TrendSchema = z.object({
+  sampleMs: z.number().int().min(250).max(60000),
+  durationSec: z.number().int().min(30).max(3600),
+  autoScale: z.boolean(),
+  series: z.array(z.object({
+    path: symbol.min(1),
+    label: z.string().max(80),
+    color,
+  }).strict()).max(4),
+}).strict().refine((trend) => Math.ceil(trend.durationSec * 1000 / trend.sampleMs) <= 600,
+  'Trend history exceeds 600 samples')
+export type VisuTrend = z.infer<typeof TrendSchema>
 export const ElementSchema = z
   .object({
     id: z.string().min(1).max(128),
     name: z.string().min(1).max(80),
-    kind: z.enum(['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number', 'graphic']),
+    kind: z.enum(['rectangle', 'ellipse', 'line', 'text', 'indicator', 'button', 'number', 'graphic', 'trend']),
     graphic: z
       .object({
         data: png.refine((data) => data === '' || !!graphicDimensions(data), 'Invalid embedded PNG'),
@@ -26,6 +38,7 @@ export const ElementSchema = z
         return new Set(variants.map((variant) => variant.value)).size === variants.length
       }, 'Duplicate image state value')
       .optional(),
+    trend: TrendSchema.optional(),
     lineDirection: z.enum(['horizontal', 'vertical', 'diagonal-down', 'diagonal-up']).default('horizontal'),
     indicatorStyle: z.enum(['classic', 'lamp12']).optional(),
     x: z.number().finite().min(0).max(8192),
@@ -88,12 +101,14 @@ export const TargetVisuSchema = z
   .superRefine((doc, ctx) => {
     const ids = new Set<string>(),
       names = new Set<string>()
+    let trendCount = 0
     for (const screen of doc.screens) {
       if (ids.has(screen.id) || names.has(screen.name.toLowerCase()))
         ctx.addIssue({ code: 'custom', message: 'Duplicate screen id or name' })
       ids.add(screen.id)
       names.add(screen.name.toLowerCase())
       for (const element of screen.elements) {
+        if (element.kind === 'trend') trendCount++
         if (ids.has(element.id)) ctx.addIssue({ code: 'custom', message: 'Duplicate element id' })
         ids.add(element.id)
         if (element.x + element.width > screen.width || element.y + element.height > screen.height)
@@ -102,6 +117,7 @@ export const TargetVisuSchema = z
           ctx.addIssue({ code: 'custom', message: `${element.name}: minimum exceeds maximum` })
       }
     }
+    if (trendCount > 8) ctx.addIssue({ code: 'custom', message: 'At most 8 Trend elements per project' })
     if (doc.screens.length ? !doc.screens.some((s) => s.id === doc.startScreen) : doc.startScreen !== '')
       ctx.addIssue({ code: 'custom', message: 'Start screen is missing' })
   })
@@ -153,12 +169,15 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     name: `${kind}_${id.slice(0, 6)}`,
     kind,
     ...(kind === 'graphic' ? { graphic: { data: '', fit: 'contain' as const, variants: [] } } : {}),
+    ...(kind === 'trend' ? {
+      trend: { sampleMs: 2000, durationSec: 900, autoScale: false, series: [] },
+    } : {}),
     lineDirection: 'horizontal',
     x: 20,
     y: 20,
-    width: kind === 'indicator' ? 48 : 140,
-    height: kind === 'line' ? 8 : kind === 'graphic' ? 100 : 48,
-    fill: kind === 'button' ? '#2563eb' : '#dbe2ea',
+    width: kind === 'indicator' ? 48 : kind === 'trend' ? 320 : 140,
+    height: kind === 'trend' ? 180 : kind === 'line' ? 8 : kind === 'graphic' ? 100 : 48,
+    fill: kind === 'button' ? '#2563eb' : kind === 'trend' ? '#ffffff' : '#dbe2ea',
     activeFill: '#22c55e',
     stroke: '#475569',
     strokeWidth: 1,
@@ -167,7 +186,7 @@ export function newElement(kind: VisuElement['kind'], id: string): VisuElement {
     borderRadius: 0,
     textColor: kind === 'button' ? '#ffffff' : '#172033',
     fontSize: 18,
-    text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : '',
+    text: kind === 'text' ? 'Text' : kind === 'button' ? 'Button' : kind === 'trend' ? 'Trend' : '',
     decimals: 1,
     ...(kind === 'number' ? { numberMode: 'output' as const } : {}),
     minimum: 0,
@@ -193,6 +212,24 @@ export function validateBindings(doc: TargetVisuDocument, symbols: readonly Visu
   for (const screen of doc.screens)
     for (const element of screen.elements) {
       const label = `${screen.name}/${element.name}`
+      if (element.kind === 'trend') {
+        if (!element.trend) errors.push(`${label}: Trend settings are missing`)
+        else {
+          if (!element.trend.series.length) errors.push(`${label}: Trend needs at least one curve`)
+          const seen = new Set<string>()
+          for (const series of element.trend.series) {
+            const path = series.path.toLowerCase()
+            if (seen.has(path)) errors.push(`${label}: duplicate Trend curve ${series.path}`)
+            seen.add(path)
+            const found = byPath.get(path)
+            if (!found) errors.push(`${label}: unknown Trend variable ${series.path}`)
+            else if (!isNumericType(found.type))
+              errors.push(`${label}: Trend requires numeric PLC variable: ${series.path}`)
+          }
+        }
+        if (element.action.kind !== 'none') errors.push(`${label}: Trend is display-only`)
+        if (element.bindings.value) errors.push(`${label}: Trend uses curve bindings, not Value variable`)
+      } else if (element.trend) errors.push(`${label}: Trend settings require Trend element`)
       if (element.indicatorStyle && element.kind !== 'indicator')
         errors.push(`${label}: Indicator style can only be set on Indicator`)
       if (element.kind === 'indicator' && element.indicatorStyle === 'lamp12') {
