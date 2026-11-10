@@ -336,4 +336,8 @@ it('creates a Trend with configured curves and preview', () => {
   fireEvent.change(screen.getByLabelText('Trend history window'), { target: { value: '3600' } })
   expect(doc().screens[0].elements[0].trend?.sampleMs).toBe(10000)
   expect(screen.getByLabelText('Trend preview')).toBeTruthy()
+  const toolbar = screen.getByLabelText('Trend preview toolbar')
+  expect(toolbar.querySelectorAll('rect')).toHaveLength(9)
+  expect(toolbar.textContent).toContain('LIVE')
+  expect(screen.getByLabelText('Trend properties').textContent).toContain('do not write PLC variables')
 })
