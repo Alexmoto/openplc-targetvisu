@@ -4,14 +4,14 @@ on:
     branches: [feature/targetvisu-trends]
     paths:
       - 'src/middleware/shared/targetvisu/**'
-      - 'src/frontend/components/_features/[workspace]/editor/targetvisu/**'
+      - 'src/frontend/components/_features/**/editor/targetvisu/**'
       - 'src/backend/shared/compile/steps/**'
       - '.github/workflows/ci-targetvisu-trends.yml'
   pull_request:
     branches: [develop, main]
     paths:
       - 'src/middleware/shared/targetvisu/**'
-      - 'src/frontend/components/_features/[workspace]/editor/targetvisu/**'
+      - 'src/frontend/components/_features/**/editor/targetvisu/**'
       - 'src/backend/shared/compile/steps/**'
       - '.github/workflows/ci-targetvisu-trends.yml'
 jobs:
