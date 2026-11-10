@@ -85,14 +85,19 @@ export function TrendProperties({
             color: palette[trend.series.length],
           }] })
         }}>+ Add curve</button>
-      <p className='text-slate-500'>Up to 600 samples per chart. History is kept in RAM while TargetVisu service is running.</p>
+      <p className='text-slate-500'>On the Runtime chart: X+ / X− zoom time, &lt; / &gt; pan through history;
+        Y+ / Y− zoom values, ^ / v pan vertically, LIVE resets the viewport.
+        Controls are for viewing only and do not write PLC variables.</p>
+      <p className='text-slate-500'>Up to 600 samples per configured time window.
+        A bounded extra RAM history supports scrolling; all history clears when the TargetVisu service restarts.</p>
     </section>
   )
 }
 
 export function TrendPreview({ element }: { element: VisuElement }) {
   const series = element.trend?.series ?? []
-  const x0 = 42, x1 = 308, y0 = 35, y1 = 147
+  const x0 = 48, x1 = 308, y0 = 45, y1 = 128
+  const controls = ['<', 'X+', 'X-', '>', 'v', 'Y+', 'Y-', '^', 'LIVE']
   return (
     <svg x={element.x} y={element.y} width={element.width} height={element.height}
       viewBox='0 0 320 180' preserveAspectRatio='none' aria-label='Trend preview'>
@@ -115,7 +120,19 @@ export function TrendPreview({ element }: { element: VisuElement }) {
         }).join(' ')
         return <path key={item.path} d={path} stroke={item.color} strokeWidth='2' fill='none' />
       })}
-      <text x='42' y='169' fontSize='10' fill={element.textColor}>Preview • no PLC history</text>
+      <text x='48' y='145' fontSize='9' fill={element.textColor}>Demo history • controls work in Runtime</text>
+      <g aria-label='Trend preview toolbar'>
+        {controls.map((label, index) => {
+          const boxWidth = index === controls.length - 1 ? 32 : 24
+          const bx = 40 + index * 26
+          return (
+            <g key={label} transform={`translate(${bx},155)`}>
+              <rect width={boxWidth} height='19' fill='#2e3b4f' stroke='#94a3b8' strokeWidth='.8' rx='2' />
+              <text x={boxWidth / 2} y='13' fontSize='10' textAnchor='middle' fill='#ffffff'>{label}</text>
+            </g>
+          )
+        })}
+      </g>
       {series.slice(0, 4).map((item, index) => (
         <g key={item.path} transform={`translate(${180 + (index % 2) * 70},${10 + Math.floor(index / 2) * 12})`}>
           <line x1='0' x2='12' y1='0' y2='0' stroke={item.color} strokeWidth='3' />
